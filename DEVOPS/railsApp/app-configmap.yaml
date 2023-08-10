@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: railsapp-configmap
+data:
+  PORT: "3000"
+  RAILS_ENV: production
+  REDIS_URL: redis://:a-very-complex-password-here@redis-0.redis.default.svc.cluster.local:6379/1
+  PG_USERNAME: postgres
+  PG_PASSWORD: WbrTpN3g7q
+  PG_HOST: postgres-sts-0.postgres-headless-svc.database.svc.cluster.local
+  PG_DATABASE: db3
+  ELASTICSEARCH_URL: es-cluster-0.elasticsearch.default.svc.cluster.local
+  RABBITMQ_URL: amqp://rabbitmq-0.rabbitmq.rabbits.svc.cluster.local:5672
+  RABBITMQ_EXCHANGE: amq.direct
+  RABBITMQ_QUEUE: ...
+  WORKERS: Workers::LegislatorWorker
+  SECRET_KEY_BASE: 467dfdbdb95a675e706ff786f0662bc23cfdc37f7f4b77133be464e67dcce099dd4ca93998fec55eb824502c625cf2f7b54ac3eba47b31eb537d131bb384797c
+

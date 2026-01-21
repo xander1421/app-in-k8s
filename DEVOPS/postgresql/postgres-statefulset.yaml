@@ -22,7 +22,7 @@ spec:
               exec:
                 command:
                   - /pre-stop.sh
-          image: docker.io/bitnami/postgresql-repmgr:11.12.0-debian-10-r44
+          image: docker.io/bitnami/postgresql-repmgr:latest
           imagePullPolicy: "IfNotPresent"
           securityContext:
             runAsUser: 1001

@@ -70,7 +70,7 @@ spec:
         app: elasticsearch
     spec:
       accessModes: [ "ReadWriteOnce" ]
-      storageClassName: "hostpath"
+      storageClassName: "local-path"
       resources:
         requests:
           storage: 10Gi

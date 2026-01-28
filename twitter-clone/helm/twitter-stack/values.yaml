@@ -109,7 +109,7 @@ minio:
       cpu: 500m
       memory: 1Gi
 
-# Envoy Gateway
+# Envoy Gateway with HTTP/3 support
 gateway:
   enabled: true
   className: envoy
@@ -120,6 +120,12 @@ gateway:
     - name: https
       port: 443
       protocol: HTTPS
+    - name: http3
+      port: 443
+      protocol: UDP  # HTTP/3 uses UDP
+  http3:
+    enabled: true
+    altSvc: true  # Enable Alt-Svc header for HTTP/3 discovery
 
 # Service-specific settings
 services:

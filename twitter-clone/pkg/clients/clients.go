@@ -1,68 +1,49 @@
 package clients
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"time"
 
 	"github.com/alexprut/twitter-clone/pkg/models"
 )
 
-// HTTPClient wraps http.Client with common functionality
+// HTTPClient wraps HTTP/3 client with common functionality
 type HTTPClient struct {
-	client  *http.Client
+	client  *HTTP3Client
 	baseURL string
 }
 
 func NewHTTPClient(baseURL string, timeout time.Duration) *HTTPClient {
 	return &HTTPClient{
-		client: &http.Client{
-			Timeout: timeout,
-		},
+		client:  NewHTTP3Client(baseURL, timeout),
 		baseURL: baseURL,
 	}
 }
 
 func (c *HTTPClient) do(ctx context.Context, method, path string, body interface{}, result interface{}) error {
-	var bodyReader io.Reader
-	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			return fmt.Errorf("marshal body: %w", err)
+	switch method {
+	case "GET":
+		if result != nil {
+			return c.client.GetJSON(ctx, path, result)
 		}
-		bodyReader = bytes.NewReader(data)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("do request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		var errResp models.ErrorResponse
-		json.NewDecoder(resp.Body).Decode(&errResp)
-		return fmt.Errorf("request failed: %s", errResp.Error)
-	}
-
-	if result != nil {
-		if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
-			return fmt.Errorf("decode response: %w", err)
+		_, err := c.client.Get(ctx, path)
+		return err
+	case "POST":
+		if result != nil {
+			return c.client.PostJSON(ctx, path, body, result)
 		}
+		_, err := c.client.Post(ctx, path, body)
+		return err
+	case "PUT":
+		_, err := c.client.Put(ctx, path, body)
+		return err
+	case "DELETE":
+		_, err := c.client.Delete(ctx, path)
+		return err
+	default:
+		return fmt.Errorf("unsupported method: %s", method)
 	}
-
-	return nil
 }
 
 // UserServiceClient is a client for the user service
@@ -74,6 +55,11 @@ func NewUserServiceClient(baseURL string) *UserServiceClient {
 	return &UserServiceClient{
 		HTTPClient: NewHTTPClient(baseURL, 10*time.Second),
 	}
+}
+
+// NewUserClient creates a new user client (compatibility)
+func NewUserClient(baseURL string) *UserServiceClient {
+	return NewUserServiceClient(baseURL)
 }
 
 func (c *UserServiceClient) GetUser(ctx context.Context, userID string) (*models.User, error) {
@@ -93,13 +79,19 @@ func (c *UserServiceClient) GetFollowers(ctx context.Context, userID string, lim
 	return resp.Users, nil
 }
 
-func (c *UserServiceClient) GetFollowing(ctx context.Context, userID string, limit, offset int) ([]models.User, error) {
+func (c *UserServiceClient) GetFollowing(ctx context.Context, userID string, limit, offset int) ([]*models.User, error) {
 	var resp models.FollowersResponse
 	path := fmt.Sprintf("/api/v1/users/%s/following?limit=%d&offset=%d", userID, limit, offset)
 	if err := c.do(ctx, "GET", path, nil, &resp); err != nil {
 		return nil, err
 	}
-	return resp.Users, nil
+	
+	// Convert to pointers for compatibility
+	result := make([]*models.User, len(resp.Users))
+	for i := range resp.Users {
+		result[i] = &resp.Users[i]
+	}
+	return result, nil
 }
 
 func (c *UserServiceClient) GetFollowerIDs(ctx context.Context, userID string) ([]string, error) {
@@ -119,6 +111,28 @@ func NewTweetServiceClient(baseURL string) *TweetServiceClient {
 	return &TweetServiceClient{
 		HTTPClient: NewHTTPClient(baseURL, 10*time.Second),
 	}
+}
+
+// NewTweetClient creates a new tweet client (compatibility)
+func NewTweetClient(baseURL string) *TweetServiceClient {
+	return NewTweetServiceClient(baseURL)
+}
+
+// GetTweetsBatch fetches multiple tweets by IDs
+func (c *TweetServiceClient) GetTweetsBatch(ctx context.Context, tweetIDs []string) ([]models.Tweet, error) {
+	return c.GetTweets(ctx, tweetIDs)
+}
+
+// GetUserTweets gets tweets by a specific user
+func (c *TweetServiceClient) GetUserTweets(ctx context.Context, userID string, limit, offset int) ([]models.Tweet, error) {
+	path := fmt.Sprintf("/api/v1/users/%s/tweets?limit=%d&offset=%d", userID, limit, offset)
+	var resp struct {
+		Tweets []models.Tweet `json:"tweets"`
+	}
+	if err := c.do(ctx, "GET", path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Tweets, nil
 }
 
 func (c *TweetServiceClient) GetTweet(ctx context.Context, tweetID string) (*models.Tweet, error) {
@@ -167,6 +181,26 @@ func NewMediaServiceClient(baseURL string) *MediaServiceClient {
 	return &MediaServiceClient{
 		HTTPClient: NewHTTPClient(baseURL, 30*time.Second),
 	}
+}
+
+// NewNotificationClient creates a notification service client
+type NotificationServiceClient struct {
+	*HTTPClient
+}
+
+func NewNotificationServiceClient(baseURL string) *NotificationServiceClient {
+	return &NotificationServiceClient{
+		HTTPClient: NewHTTPClient(baseURL, 10*time.Second),
+	}
+}
+
+// NewNotificationClient creates a new notification client (compatibility)
+func NewNotificationClient(baseURL string) *NotificationServiceClient {
+	return NewNotificationServiceClient(baseURL)
+}
+
+func (c *NotificationServiceClient) SendNotification(ctx context.Context, notification *models.Notification) error {
+	return c.do(ctx, "POST", "/api/v1/notifications", notification, nil)
 }
 
 func (c *MediaServiceClient) GetMedia(ctx context.Context, mediaID string) (*models.Media, error) {

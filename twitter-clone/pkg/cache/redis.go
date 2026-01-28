@@ -256,3 +256,39 @@ func (rc *RedisCache) SIsMember(ctx context.Context, key string, member interfac
 func (rc *RedisCache) SCard(ctx context.Context, key string) (int64, error) {
 	return rc.client.SCard(ctx, key).Result()
 }
+
+// ============== List Operations ==============
+
+func (rc *RedisCache) LPush(ctx context.Context, key string, values ...interface{}) error {
+	return rc.client.LPush(ctx, key, values...).Err()
+}
+
+func (rc *RedisCache) LRange(ctx context.Context, key string, start, stop int64) ([]string, error) {
+	return rc.client.LRange(ctx, key, start, stop).Result()
+}
+
+// ============== Additional Helper Methods ==============
+
+func (rc *RedisCache) Keys(ctx context.Context, pattern string) ([]string, error) {
+	return rc.client.Keys(ctx, pattern).Result()
+}
+
+// AddToSet is an alias for SAdd for compatibility
+func (rc *RedisCache) AddToSet(ctx context.Context, key string, members ...interface{}) error {
+	return rc.SAdd(ctx, key, members...)
+}
+
+// GetSetMembers is an alias for SMembers for compatibility  
+func (rc *RedisCache) GetSetMembers(ctx context.Context, key string) ([]string, error) {
+	return rc.SMembers(ctx, key)
+}
+
+// AddToList is an alias for LPush for compatibility
+func (rc *RedisCache) AddToList(ctx context.Context, key string, values ...interface{}) error {
+	return rc.LPush(ctx, key, values...)
+}
+
+// GetList returns list elements
+func (rc *RedisCache) GetList(ctx context.Context, key string) ([]string, error) {
+	return rc.LRange(ctx, key, 0, -1)
+}

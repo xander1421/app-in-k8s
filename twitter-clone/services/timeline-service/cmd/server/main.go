@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/alexprut/twitter-clone/pkg/auth"
 	"github.com/alexprut/twitter-clone/pkg/cache"
 	"github.com/alexprut/twitter-clone/pkg/clients"
 	"github.com/alexprut/twitter-clone/pkg/middleware"
@@ -54,21 +55,33 @@ func main() {
 	defer redisCache.Close()
 
 	// Service clients
-	var tweetClient *clients.TweetServiceClient
 	tweetServiceURL := os.Getenv("TWEET_SERVICE_URL")
-	if tweetServiceURL != "" {
-		tweetClient = clients.NewTweetServiceClient(tweetServiceURL)
+	if tweetServiceURL == "" {
+		tweetServiceURL = "http://tweet-service:8080"
 	}
+	tweetClient := clients.NewTweetClient(tweetServiceURL)
 
-	var userClient *clients.UserServiceClient
 	userServiceURL := os.Getenv("USER_SERVICE_URL")
-	if userServiceURL != "" {
-		userClient = clients.NewUserServiceClient(userServiceURL)
+	if userServiceURL == "" {
+		userServiceURL = "http://user-service:8080"
 	}
+	userClient := clients.NewUserClient(userServiceURL)
 
-	// Initialize service and handlers
-	svc := service.NewTimelineService(redisCache, tweetClient, userClient)
-	handler := handlers.NewTimelineHandler(svc)
+	// Initialize JWT manager (for middleware)
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "development-secret-change-in-production"
+	}
+	jwtManager := auth.NewJWTManager(
+		[]byte(jwtSecret),
+		15*time.Minute,
+		7*24*time.Hour,
+		"twitter-clone",
+	)
+
+	// Initialize basic timeline service
+	basicSvc := service.NewTimelineService(redisCache, tweetClient, userClient)
+	handler := handlers.NewTimelineHandler(basicSvc)
 
 	// Setup HTTP router
 	mux := http.NewServeMux()
@@ -78,7 +91,8 @@ func main() {
 
 	// Apply middleware
 	var h http.Handler = mux
-	h = middleware.Auth(h)
+	h = middleware.JWTAuth(jwtManager)(h)  // Use JWT authentication
+	h = middleware.RateLimit(200, 1*time.Minute)(h)  // 200 requests per minute for timeline
 	h = middleware.CORS(h)
 	h = middleware.Logger(h)
 	h = middleware.Recovery(h)

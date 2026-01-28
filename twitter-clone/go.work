@@ -1,10 +1,11 @@
-go 1.22
+go 1.24
 
 use (
 	./pkg
 	./services/fanout-service
 	./services/media-service
 	./services/notification-service
+	./services/realtime-service
 	./services/search-service
 	./services/timeline-service
 	./services/tweet-service

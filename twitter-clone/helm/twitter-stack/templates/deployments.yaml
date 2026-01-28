@@ -17,16 +17,39 @@ spec:
       labels:
         app: user-service
     spec:
+      serviceAccountName: {{ .Release.Name }}-twitter
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+      
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      
       containers:
         - name: user-service
           image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/user-service:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
                 name: twitter-config
           env:
+            - name: TLS_ENABLED
+              value: "true"
             - name: INSTANCE_ID
               valueFrom:
                 fieldRef:
@@ -52,6 +75,12 @@ spec:
                   key: password
             - name: RABBITMQ_URL
               value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASS)@$(RABBITMQ_HOST):$(RABBITMQ_PORT)/"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/cache
+          
           resources:
 {{ toYaml .Values.resources.default | indent 12 }}
           livenessProbe:
@@ -66,6 +95,14 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
+      
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 50Mi
+        - name: cache
+          emptyDir:
+            sizeLimit: 100Mi
 
 ---
 # Tweet Service
@@ -86,16 +123,39 @@ spec:
       labels:
         app: tweet-service
     spec:
+      serviceAccountName: {{ .Release.Name }}-twitter
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+      
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      
       containers:
         - name: tweet-service
           image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/tweet-service:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
                 name: twitter-config
           env:
+            - name: TLS_ENABLED
+              value: "true"
             - name: INSTANCE_ID
               valueFrom:
                 fieldRef:
@@ -121,6 +181,12 @@ spec:
                   key: password
             - name: RABBITMQ_URL
               value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASS)@$(RABBITMQ_HOST):$(RABBITMQ_PORT)/"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/cache
+          
           resources:
 {{ toYaml .Values.resources.default | indent 12 }}
           livenessProbe:
@@ -135,6 +201,14 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
+      
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 50Mi
+        - name: cache
+          emptyDir:
+            sizeLimit: 100Mi
 
 ---
 # Timeline Service
@@ -155,22 +229,51 @@ spec:
       labels:
         app: timeline-service
     spec:
+      serviceAccountName: {{ .Release.Name }}-twitter
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+      
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      
       containers:
         - name: timeline-service
           image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/timeline-service:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
                 name: twitter-config
           env:
+            - name: TLS_ENABLED
+              value: "true"
             - name: INSTANCE_ID
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
             - name: REDIS_ADDR
               value: "rfr-twitter-redis.{{ .Values.namespace }}.svc.cluster.local:6379"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/cache
+          
           resources:
 {{ toYaml .Values.resources.default | indent 12 }}
           livenessProbe:
@@ -185,6 +288,14 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
+      
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 50Mi
+        - name: cache
+          emptyDir:
+            sizeLimit: 100Mi
 
 ---
 # Fanout Service (Worker)
@@ -205,16 +316,39 @@ spec:
       labels:
         app: fanout-service
     spec:
+      serviceAccountName: {{ .Release.Name }}-twitter
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+      
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      
       containers:
         - name: fanout-service
           image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/fanout-service:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
                 name: twitter-config
           env:
+            - name: TLS_ENABLED
+              value: "true"
             - name: INSTANCE_ID
               valueFrom:
                 fieldRef:
@@ -247,6 +381,14 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
+      
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 50Mi
+        - name: cache
+          emptyDir:
+            sizeLimit: 100Mi
 
 ---
 # Media Service
@@ -267,16 +409,39 @@ spec:
       labels:
         app: media-service
     spec:
+      serviceAccountName: {{ .Release.Name }}-twitter
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+      
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      
       containers:
         - name: media-service
           image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/media-service:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
                 name: twitter-config
           env:
+            - name: TLS_ENABLED
+              value: "true"
             - name: INSTANCE_ID
               valueFrom:
                 fieldRef:
@@ -303,6 +468,12 @@ spec:
                   key: password
             - name: RABBITMQ_URL
               value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASS)@$(RABBITMQ_HOST):$(RABBITMQ_PORT)/"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/cache
+          
           resources:
 {{ toYaml .Values.resources.default | indent 12 }}
           livenessProbe:
@@ -317,6 +488,14 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
+      
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 50Mi
+        - name: cache
+          emptyDir:
+            sizeLimit: 100Mi
 
 ---
 # Notification Service
@@ -337,16 +516,39 @@ spec:
       labels:
         app: notification-service
     spec:
+      serviceAccountName: {{ .Release.Name }}-twitter
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+      
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      
       containers:
         - name: notification-service
           image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/notification-service:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
                 name: twitter-config
           env:
+            - name: TLS_ENABLED
+              value: "true"
             - name: INSTANCE_ID
               valueFrom:
                 fieldRef:
@@ -358,6 +560,12 @@ spec:
                   key: password
             - name: DATABASE_URL
               value: "postgres://twitter:$(DB_PASSWORD)@$(NOTIF_DB_HOST):$(DB_PORT)/notif_db?sslmode=disable"
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/cache
+          
           resources:
 {{ toYaml .Values.resources.default | indent 12 }}
           livenessProbe:
@@ -372,6 +580,14 @@ spec:
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 5
+      
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 50Mi
+        - name: cache
+          emptyDir:
+            sizeLimit: 100Mi
 
 ---
 # Search Service
@@ -392,20 +608,49 @@ spec:
       labels:
         app: search-service
     spec:
+      serviceAccountName: {{ .Release.Name }}-twitter
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+      
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      
       containers:
         - name: search-service
           image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/search-service:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
                 name: twitter-config
           env:
+            - name: TLS_ENABLED
+              value: "true"
             - name: INSTANCE_ID
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/cache
+          
           resources:
 {{ toYaml .Values.resources.default | indent 12 }}
           livenessProbe:

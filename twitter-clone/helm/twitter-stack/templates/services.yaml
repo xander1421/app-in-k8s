@@ -10,9 +10,14 @@ spec:
   selector:
     app: user-service
   ports:
-    - port: {{ .Values.services.userService.port }}
+    - name: http
+      port: {{ .Values.services.userService.port }}
       targetPort: 8080
       protocol: TCP
+    - name: http3
+      port: {{ .Values.services.userService.port }}
+      targetPort: 8080
+      protocol: UDP
 
 ---
 apiVersion: v1
@@ -26,9 +31,14 @@ spec:
   selector:
     app: tweet-service
   ports:
-    - port: {{ .Values.services.tweetService.port }}
+    - name: http
+      port: {{ .Values.services.tweetService.port }}
       targetPort: 8080
       protocol: TCP
+    - name: http3
+      port: {{ .Values.services.tweetService.port }}
+      targetPort: 8080
+      protocol: UDP
 
 ---
 apiVersion: v1
@@ -42,9 +52,14 @@ spec:
   selector:
     app: timeline-service
   ports:
-    - port: {{ .Values.services.timelineService.port }}
+    - name: http
+      port: {{ .Values.services.timelineService.port }}
       targetPort: 8080
       protocol: TCP
+    - name: http3
+      port: {{ .Values.services.timelineService.port }}
+      targetPort: 8080
+      protocol: UDP
 
 ---
 apiVersion: v1
@@ -58,9 +73,14 @@ spec:
   selector:
     app: media-service
   ports:
-    - port: {{ .Values.services.mediaService.port }}
+    - name: http
+      port: {{ .Values.services.mediaService.port }}
       targetPort: 8080
       protocol: TCP
+    - name: http3
+      port: {{ .Values.services.mediaService.port }}
+      targetPort: 8080
+      protocol: UDP
 
 ---
 apiVersion: v1
@@ -74,9 +94,14 @@ spec:
   selector:
     app: notification-service
   ports:
-    - port: {{ .Values.services.notificationService.port }}
+    - name: http
+      port: {{ .Values.services.notificationService.port }}
       targetPort: 8080
       protocol: TCP
+    - name: http3
+      port: {{ .Values.services.notificationService.port }}
+      targetPort: 8080
+      protocol: UDP
 
 ---
 apiVersion: v1
@@ -90,6 +115,11 @@ spec:
   selector:
     app: search-service
   ports:
-    - port: {{ .Values.services.searchService.port }}
+    - name: http
+      port: {{ .Values.services.searchService.port }}
       targetPort: 8080
       protocol: TCP
+    - name: http3
+      port: {{ .Values.services.searchService.port }}
+      targetPort: 8080
+      protocol: UDP

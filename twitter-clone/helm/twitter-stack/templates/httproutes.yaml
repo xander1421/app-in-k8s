@@ -17,6 +17,12 @@ spec:
       backendRefs:
         - name: user-service
           port: {{ .Values.services.userService.port }}
+      filters:
+        - type: ResponseHeaderModifier
+          responseHeaderModifier:
+            add:
+              - name: Alt-Svc
+                value: 'h3=":443"; ma=86400'  # Advertise HTTP/3 support
     - matches:
         - path:
             type: PathPrefix

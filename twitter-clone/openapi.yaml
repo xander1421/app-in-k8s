@@ -1,0 +1,712 @@
+openapi: 3.0.3
+info:
+  title: Twitter Clone API
+  description: A production-ready Twitter clone API with microservices architecture
+  version: 1.0.0
+  contact:
+    name: API Support
+    url: https://twitter-clone.com/support
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.twitter-clone.com
+    description: Production server
+  - url: https://staging-api.twitter-clone.com
+    description: Staging server
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Authentication
+    description: User authentication and session management
+  - name: Users
+    description: User management and profiles
+  - name: Tweets
+    description: Tweet operations
+  - name: Timeline
+    description: Timeline generation and management
+  - name: Media
+    description: Media upload and processing
+  - name: Notifications
+    description: User notifications
+  - name: Search
+    description: Search functionality
+  - name: Realtime
+    description: WebSocket and real-time features
+
+paths:
+  # Authentication
+  /api/v1/auth/register:
+    post:
+      tags: [Authentication]
+      summary: Register a new user
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+      security: []
+
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      summary: Login user
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+      security: []
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh access token
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+              required: [refresh_token]
+      responses:
+        '200':
+          description: Token refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+      security: []
+
+  # Users
+  /api/v1/users/{userId}:
+    get:
+      tags: [Users]
+      summary: Get user profile
+      operationId: getUserProfile
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/users/profile:
+    put:
+      tags: [Users]
+      summary: Update user profile
+      operationId: updateProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+
+  /api/v1/users/{userId}/follow:
+    post:
+      tags: [Users]
+      summary: Follow a user
+      operationId: followUser
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: User followed successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Users]
+      summary: Unfollow a user
+      operationId: unfollowUser
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: User unfollowed successfully
+
+  # Tweets
+  /api/v1/tweets:
+    post:
+      tags: [Tweets]
+      summary: Create a new tweet
+      operationId: createTweet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTweetRequest'
+      responses:
+        '201':
+          description: Tweet created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tweet'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/tweets/{tweetId}:
+    get:
+      tags: [Tweets]
+      summary: Get a tweet
+      operationId: getTweet
+      parameters:
+        - name: tweetId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Tweet details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TweetDetails'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Tweets]
+      summary: Delete a tweet
+      operationId: deleteTweet
+      parameters:
+        - name: tweetId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Tweet deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/tweets/{tweetId}/like:
+    post:
+      tags: [Tweets]
+      summary: Like a tweet
+      operationId: likeTweet
+      parameters:
+        - name: tweetId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Tweet liked
+
+    delete:
+      tags: [Tweets]
+      summary: Unlike a tweet
+      operationId: unlikeTweet
+      parameters:
+        - name: tweetId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Tweet unliked
+
+  # Timeline
+  /api/v1/timeline/home:
+    get:
+      tags: [Timeline]
+      summary: Get home timeline
+      operationId: getHomeTimeline
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Home timeline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimelineResponse'
+
+  # Media
+  /api/v1/media/upload:
+    post:
+      tags: [Media]
+      summary: Upload media file
+      operationId: uploadMedia
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                alt_text:
+                  type: string
+                  maxLength: 420
+              required: [file]
+      responses:
+        '201':
+          description: Media uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Media'
+
+  # Search
+  /api/v1/search/tweets:
+    get:
+      tags: [Search]
+      summary: Search tweets
+      operationId: searchTweets
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 500
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # Auth Schemas
+    RegisterRequest:
+      type: object
+      required: [username, email, password, name]
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          pattern: '^[a-zA-Z0-9_]+$'
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in:
+          type: integer
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        expires_in:
+          type: integer
+
+    # User Schemas
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        bio:
+          type: string
+          nullable: true
+        avatar_url:
+          type: string
+          format: uri
+          nullable: true
+        follower_count:
+          type: integer
+          minimum: 0
+        following_count:
+          type: integer
+          minimum: 0
+        tweet_count:
+          type: integer
+          minimum: 0
+        verified:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        bio:
+          type: string
+          maxLength: 420
+        location:
+          type: string
+          maxLength: 100
+        website:
+          type: string
+          format: uri
+
+    # Tweet Schemas
+    CreateTweetRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 280
+        media_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          maxItems: 4
+        reply_to_id:
+          type: string
+          format: uuid
+          nullable: true
+
+    Tweet:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        author_id:
+          type: string
+          format: uuid
+        content:
+          type: string
+        media_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        reply_to_id:
+          type: string
+          format: uuid
+          nullable: true
+        retweet_of_id:
+          type: string
+          format: uuid
+          nullable: true
+        like_count:
+          type: integer
+          minimum: 0
+        retweet_count:
+          type: integer
+          minimum: 0
+        reply_count:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+
+    TweetDetails:
+      allOf:
+        - $ref: '#/components/schemas/Tweet'
+        - type: object
+          properties:
+            author:
+              $ref: '#/components/schemas/User'
+            media_urls:
+              type: array
+              items:
+                type: string
+                format: uri
+            is_liked:
+              type: boolean
+            is_retweeted:
+              type: boolean
+            is_bookmarked:
+              type: boolean
+
+    # Timeline Schemas
+    TimelineResponse:
+      type: object
+      properties:
+        tweets:
+          type: array
+          items:
+            $ref: '#/components/schemas/TweetDetails'
+        next_cursor:
+          type: string
+          nullable: true
+        has_more:
+          type: boolean
+        strategy_used:
+          type: string
+          enum: [push, pull, hybrid]
+
+    # Media Schemas
+    Media:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [image, video, gif, audio]
+        url:
+          type: string
+          format: uri
+        thumbnail_url:
+          type: string
+          format: uri
+          nullable: true
+        width:
+          type: integer
+          nullable: true
+        height:
+          type: integer
+          nullable: true
+        size:
+          type: integer
+          minimum: 0
+        processing_status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        alt_text:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    # Search Schemas
+    SearchResponse:
+      type: object
+      properties:
+        tweets:
+          type: array
+          items:
+            $ref: '#/components/schemas/TweetDetails'
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        total:
+          type: integer
+          minimum: 0
+        has_more:
+          type: boolean
+
+    # Notification Schemas
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [like, follow, mention, retweet, reply]
+        actor:
+          $ref: '#/components/schemas/User'
+        tweet:
+          $ref: '#/components/schemas/Tweet'
+          nullable: true
+        message:
+          type: string
+        read:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    # Error Schema
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    TooManyRequests:
+      description: Rate limit exceeded
+      headers:
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+        X-RateLimit-Reset:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

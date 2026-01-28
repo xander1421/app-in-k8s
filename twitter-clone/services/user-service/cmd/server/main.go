@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"log"
 	"net/http"
 	"os"
@@ -12,9 +13,11 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/alexprut/twitter-clone/pkg/auth"
 	"github.com/alexprut/twitter-clone/pkg/cache"
 	"github.com/alexprut/twitter-clone/pkg/database"
 	"github.com/alexprut/twitter-clone/pkg/middleware"
+	"github.com/alexprut/twitter-clone/pkg/moderation"
 	"github.com/alexprut/twitter-clone/pkg/queue"
 	"github.com/alexprut/twitter-clone/pkg/search"
 	"github.com/alexprut/twitter-clone/pkg/server"
@@ -34,22 +37,41 @@ func main() {
 
 	log.Printf("Starting user-service instance: %s", instanceID)
 
-	// Database connection
+	var db *database.PostgresDB
+	
+	// Database connection (optional for frontend testing)
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		dbURL = "postgres://postgres:postgres@localhost:5432/users_db?sslmode=disable"
 	}
-
-	db, err := database.NewPostgresDB(ctx, dbURL)
-	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+	
+	// Try to connect to database, but don't fail if unavailable (for frontend testing)
+	if os.Getenv("SKIP_DB") != "true" {
+		var err error
+		db, err = database.NewPostgresDB(ctx, dbURL)
+		if err != nil {
+			log.Printf("Warning: Failed to connect to database: %v", err)
+			log.Printf("Running in frontend-only mode. Set SKIP_DB=true to suppress this warning.")
+			db = nil
+		} else {
+			defer db.Close()
+		}
 	}
-	defer db.Close()
 
-	// Initialize repository and run migrations
-	repo := repository.NewUserRepository(db.Pool())
-	if err := repo.Migrate(ctx); err != nil {
-		log.Fatalf("Failed to run migrations: %v", err)
+	// Initialize repositories (with nil check for frontend-only mode)
+	var baseRepo *repository.UserRepository
+	var authRepo *repository.UserRepositoryAuth
+	
+	if db != nil {
+		baseRepo = repository.NewUserRepository(db.Pool())
+		authRepo = repository.NewUserRepositoryAuth(db.Pool())
+		
+		// Run migrations
+		if err := baseRepo.Migrate(ctx); err != nil {
+			log.Fatalf("Failed to run migrations: %v", err)
+		}
+	} else {
+		log.Println("Running in frontend-only mode - database features disabled")
 	}
 
 	// Redis connection (optional)
@@ -59,6 +81,7 @@ func main() {
 		sentinelAddrs := strings.Split(os.Getenv("REDIS_SENTINEL_ADDRS"), ",")
 		masterName := os.Getenv("REDIS_MASTER_NAME")
 		redisPassword := os.Getenv("REDIS_PASSWORD")
+		var err error
 
 		if masterName != "" && len(sentinelAddrs) > 0 && sentinelAddrs[0] != "" {
 			redisCache, err = cache.NewRedisCache(ctx, sentinelAddrs, masterName, redisPassword, instanceID)
@@ -76,6 +99,7 @@ func main() {
 	var esClient *search.ElasticsearchClient
 	esURL := os.Getenv("ELASTICSEARCH_URL")
 	if esURL != "" {
+		var err error
 		esClient, err = search.NewElasticsearchClient(esURL)
 		if err != nil {
 			log.Printf("Warning: Failed to connect to Elasticsearch: %v", err)
@@ -86,6 +110,7 @@ func main() {
 	var rmq *queue.RabbitMQ
 	rmqURL := os.Getenv("RABBITMQ_URL")
 	if rmqURL != "" {
+		var err error
 		rmq, err = queue.NewRabbitMQ(rmqURL, instanceID)
 		if err != nil {
 			log.Printf("Warning: Failed to connect to RabbitMQ: %v", err)
@@ -94,19 +119,49 @@ func main() {
 		}
 	}
 
-	// Initialize service and handlers
-	svc := service.NewUserService(repo, redisCache, esClient, rmq)
+	// Initialize JWT manager
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "development-secret-change-in-production"
+	}
+	jwtManager := auth.NewJWTManager(
+		[]byte(jwtSecret),
+		15*time.Minute,  // access token expiry
+		7*24*time.Hour,  // refresh token expiry
+		"twitter-clone",
+	)
+	
+	// Initialize content moderator
+	moderator := moderation.NewContentModerator(redisCache)
+	
+	// Initialize services
+	svc := service.NewUserService(baseRepo, redisCache, esClient, rmq)
+	authSvc := service.NewAuthService(authRepo, jwtManager, moderator)
+	
+	// Initialize handlers
 	handler := handlers.NewUserHandler(svc)
+	_ = authSvc // TODO: Use auth service when implementing auth handlers
 
 	// Setup HTTP router
 	mux := http.NewServeMux()
+	
+	// Register user routes
 	handler.RegisterRoutes(mux)
+	
+	// Health check routes
 	mux.HandleFunc("GET /health", handlers.HealthHandler)
 	mux.HandleFunc("GET /ready", handlers.ReadyHandler)
+	
+	// WebTransport endpoint
+	mux.HandleFunc("GET /webtransport", func(w http.ResponseWriter, r *http.Request) {
+		// WebTransport upgrades are handled by the underlying HTTP/3 WebTransport server
+		w.WriteHeader(http.StatusOK)
+	})
 
 	// Apply middleware
 	var h http.Handler = mux
-	h = middleware.Auth(h)
+	h = middleware.JWTAuth(jwtManager)(h)  // Use JWT authentication
+	h = middleware.RateLimit(100, 1*time.Minute)(h)  // 100 requests per minute
 	h = middleware.CORS(h)
 	h = middleware.Logger(h)
 	h = middleware.Recovery(h)
@@ -121,10 +176,26 @@ func main() {
 
 	var srv *server.Server
 	if useTLS {
-		tlsConfig, err := server.GenerateSelfSignedCert()
+		// Try to load proper certificate first
+		cert, err := tls.LoadX509KeyPair("certs/cert.pem", "certs/key.pem")
+		var tlsConfig *tls.Config
+		
 		if err != nil {
-			log.Fatalf("Failed to generate TLS cert: %v", err)
+			log.Printf("Failed to load certificate files, generating self-signed: %v", err)
+			tlsConfig, err = server.GenerateSelfSignedCert()
+			if err != nil {
+				log.Fatalf("Failed to generate TLS cert: %v", err)
+			}
+		} else {
+			log.Println("Using proper certificate files for HTTP/3")
+			tlsConfig = &tls.Config{
+				Certificates: []tls.Certificate{cert},
+				NextProtos:   []string{"h3", "h2", "http/1.1"}, // HTTP/3 first
+				MinVersion:   tls.VersionTLS12,
+				MaxVersion:   tls.VersionTLS13, // QUIC requires TLS 1.3
+			}
 		}
+		
 		srv = server.NewServer(addr, h, tlsConfig)
 	} else {
 		srv = server.NewServer(addr, h, nil)

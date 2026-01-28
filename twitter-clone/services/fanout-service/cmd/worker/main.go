@@ -15,8 +15,28 @@ import (
 	"github.com/alexprut/twitter-clone/pkg/clients"
 	"github.com/alexprut/twitter-clone/pkg/models"
 	"github.com/alexprut/twitter-clone/pkg/queue"
+	"github.com/alexprut/twitter-clone/pkg/search"
 	"github.com/alexprut/twitter-clone/services/fanout-service/internal/service"
 )
+
+// simpleNotificationService implements the NotificationService interface
+type simpleNotificationService struct {
+	client *clients.NotificationServiceClient
+}
+
+func (s *simpleNotificationService) SendPushNotification(ctx context.Context, userID string, notification *models.Notification) error {
+	return s.client.SendNotification(ctx, notification)
+}
+
+func (s *simpleNotificationService) SendEmailNotification(ctx context.Context, userID string, notification *models.Notification) error {
+	// For now, use the same method
+	return s.client.SendNotification(ctx, notification)
+}
+
+func (s *simpleNotificationService) SendSSENotification(ctx context.Context, userID string, notification *models.Notification) error {
+	// For now, use the same method  
+	return s.client.SendNotification(ctx, notification)
+}
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -63,28 +83,47 @@ func main() {
 	defer redisCache.Close()
 
 	// Service clients
-	var userClient *clients.UserServiceClient
 	userServiceURL := os.Getenv("USER_SERVICE_URL")
-	if userServiceURL != "" {
-		userClient = clients.NewUserServiceClient(userServiceURL)
+	if userServiceURL == "" {
+		userServiceURL = "http://user-service:8080"
 	}
+	userClient := clients.NewUserClient(userServiceURL)
 
-	var tweetClient *clients.TweetServiceClient
 	tweetServiceURL := os.Getenv("TWEET_SERVICE_URL")
-	if tweetServiceURL != "" {
-		tweetClient = clients.NewTweetServiceClient(tweetServiceURL)
+	if tweetServiceURL == "" {
+		tweetServiceURL = "http://tweet-service:8080"
+	}
+	tweetClient := clients.NewTweetClient(tweetServiceURL)
+
+	notificationURL := os.Getenv("NOTIFICATION_SERVICE_URL")
+	if notificationURL == "" {
+		notificationURL = "http://notification-service:8080"
+	}
+	notificationClient := clients.NewNotificationClient(notificationURL)
+
+	// Elasticsearch client for search indexing
+	var esClient *search.ElasticsearchClient
+	esURL := os.Getenv("ELASTICSEARCH_URL")
+	if esURL != "" {
+		esClient, err = search.NewElasticsearchClient(esURL)
+		if err != nil {
+			log.Printf("Warning: Failed to connect to Elasticsearch: %v", err)
+		}
 	}
 
-	// Initialize service
-	svc := service.NewFanoutService(redisCache, userClient, tweetClient)
+	// Create a simple notification service wrapper
+	notificationSvc := &simpleNotificationService{client: notificationClient}
+	
+	// Initialize complete fanout service
+	svc := service.NewFanoutServiceComplete(redisCache, userClient, tweetClient, esClient, notificationSvc)
 
 	// Register handlers for each queue
 	rmq.RegisterHandler(queue.QueueFanoutHigh, func(job models.FanoutJob) error {
-		return svc.ProcessFanout(ctx, job)
+		return svc.ProcessTweetFanout(ctx, job)
 	})
 
 	rmq.RegisterHandler(queue.QueueFanoutNormal, func(job models.FanoutJob) error {
-		return svc.ProcessFanout(ctx, job)
+		return svc.ProcessTweetFanout(ctx, job)
 	})
 
 	rmq.RegisterHandler(queue.QueueSearchIndex, func(job models.FanoutJob) error {
@@ -93,10 +132,6 @@ func main() {
 
 	rmq.RegisterHandler(queue.QueueNotifyPush, func(job models.FanoutJob) error {
 		return svc.ProcessNotification(ctx, job)
-	})
-
-	rmq.RegisterHandler(queue.QueueMediaProcess, func(job models.FanoutJob) error {
-		return svc.ProcessMediaTranscode(ctx, job)
 	})
 
 	// Start all consumers

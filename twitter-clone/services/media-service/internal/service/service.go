@@ -62,12 +62,12 @@ func (s *MediaService) Upload(ctx context.Context, uploaderID, contentType strin
 	}
 
 	media := &models.Media{
-		ID:          mediaID,
-		UploaderID:  uploaderID,
-		URL:         s.storage.GetPublicURL(s.endpoint, objectName),
-		ContentType: contentType,
-		Size:        size,
-		CreatedAt:   time.Now(),
+		ID:        mediaID,
+		UserID:    uploaderID,
+		URL:       s.storage.GetPublicURL(s.endpoint, objectName),
+		MimeType:  contentType,
+		Size:      size,
+		CreatedAt: time.Now(),
 	}
 
 	// Queue media processing job
@@ -112,12 +112,12 @@ func (s *MediaService) GetMedia(ctx context.Context, mediaID, uploaderID string)
 
 	obj := objects[0]
 	return &models.Media{
-		ID:          mediaID,
-		UploaderID:  uploaderID,
-		URL:         s.storage.GetPublicURL(s.endpoint, obj.Key),
-		ContentType: obj.ContentType,
-		Size:        obj.Size,
-		CreatedAt:   obj.LastModified,
+		ID:        mediaID,
+		UserID:    uploaderID,
+		URL:       s.storage.GetPublicURL(s.endpoint, obj.Key),
+		MimeType:  obj.ContentType,
+		Size:      obj.Size,
+		CreatedAt: obj.LastModified,
 	}, nil
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/alexprut/twitter-clone/pkg/auth"
 	"github.com/alexprut/twitter-clone/pkg/cache"
 	"github.com/alexprut/twitter-clone/pkg/clients"
 	"github.com/alexprut/twitter-clone/pkg/database"
@@ -51,6 +52,10 @@ func main() {
 	repo := repository.NewTweetRepository(db.Pool())
 	if err := repo.Migrate(ctx); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
+	}
+	// Create bookmarks table
+	if err := repo.CreateBookmarksTable(ctx); err != nil {
+		log.Printf("Warning: Failed to create bookmarks table: %v", err)
 	}
 
 	// Redis connection (optional)
@@ -98,9 +103,22 @@ func main() {
 	// User service client (optional)
 	var userClient *clients.UserServiceClient
 	userServiceURL := os.Getenv("USER_SERVICE_URL")
-	if userServiceURL != "" {
-		userClient = clients.NewUserServiceClient(userServiceURL)
+	if userServiceURL == "" {
+		userServiceURL = "http://user-service:8080"
 	}
+	userClient = clients.NewUserServiceClient(userServiceURL)
+
+	// Initialize JWT manager (for middleware)
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "development-secret-change-in-production"
+	}
+	jwtManager := auth.NewJWTManager(
+		[]byte(jwtSecret),
+		15*time.Minute,
+		7*24*time.Hour,
+		"twitter-clone",
+	)
 
 	// Initialize service and handlers
 	svc := service.NewTweetService(repo, redisCache, esClient, rmq, userClient)
@@ -109,12 +127,14 @@ func main() {
 	// Setup HTTP router
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
+	handler.RegisterBookmarkRoutes(mux)  // Register bookmark endpoints
 	mux.HandleFunc("GET /health", handlers.HealthHandler)
 	mux.HandleFunc("GET /ready", handlers.ReadyHandler)
 
 	// Apply middleware
 	var h http.Handler = mux
-	h = middleware.Auth(h)
+	h = middleware.JWTAuth(jwtManager)(h)  // Use JWT authentication
+	h = middleware.RateLimit(300, 1*time.Minute)(h)  // 300 requests per minute for tweets
 	h = middleware.CORS(h)
 	h = middleware.Logger(h)
 	h = middleware.Recovery(h)

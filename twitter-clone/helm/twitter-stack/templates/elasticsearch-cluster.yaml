@@ -1,0 +1,36 @@
+{{- if .Values.elasticsearch.enabled }}
+---
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: twitter-es
+  namespace: {{ .Values.namespace }}
+spec:
+  version: {{ .Values.elasticsearch.version }}
+  nodeSets:
+    - name: default
+      count: {{ .Values.elasticsearch.nodeCount }}
+      config:
+        node.store.allow_mmap: false
+        xpack.security.enabled: false
+        xpack.security.http.ssl.enabled: false
+        xpack.security.transport.ssl.enabled: false
+      podTemplate:
+        spec:
+          containers:
+            - name: elasticsearch
+              resources:
+{{ toYaml .Values.elasticsearch.resources | indent 16 }}
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: {{ .Values.elasticsearch.storage }}
+            {{- if .Values.elasticsearch.storageClass }}
+            storageClassName: {{ .Values.elasticsearch.storageClass }}
+            {{- end }}
+{{- end }}

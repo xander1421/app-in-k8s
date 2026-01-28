@@ -1,0 +1,330 @@
+{{- if .Values.networkPolicy.enabled }}
+# NetworkPolicy: Zero-trust networking - restrict pod-to-pod communication
+# Reference: https://www.alexpruteanu.cloud/blog/kubernetes-best-practices
+
+# =============================================================================
+# Go App NetworkPolicy
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-goapp-network-policy
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "goapp-stack.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: fileshare
+      {{- include "goapp-stack.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Allow traffic from Envoy Gateway
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+      ports:
+        - protocol: TCP
+          port: {{ .Values.goapp.port }}
+    # Allow traffic from within the same namespace
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.goapp.port }}
+
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- if .Values.postgresql.enabled }}
+    # PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ .Release.Name }}-postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+    {{- end }}
+    {{- if .Values.redis.enabled }}
+    # Redis + Sentinel
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: sentinel
+      ports:
+        - protocol: TCP
+          port: 26379
+    {{- end }}
+    {{- if .Values.elasticsearch.enabled }}
+    # Elasticsearch
+    - to:
+        - podSelector:
+            matchLabels:
+              elasticsearch.k8s.elastic.co/cluster-name: {{ .Release.Name }}-elasticsearch
+      ports:
+        - protocol: TCP
+          port: 9200
+    {{- end }}
+    {{- if .Values.rabbitmq.enabled }}
+    # RabbitMQ
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ .Release.Name }}-rabbitmq
+      ports:
+        - protocol: TCP
+          port: 5672
+    {{- end }}
+---
+# =============================================================================
+# PostgreSQL NetworkPolicy - only allow from goapp and cluster peers
+# =============================================================================
+{{- if .Values.postgresql.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-postgresql-network-policy
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "goapp-stack.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ .Release.Name }}-postgresql
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from goapp
+    - from:
+        - podSelector:
+            matchLabels:
+              app: fileshare
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow cluster replication
+    - from:
+        - podSelector:
+            matchLabels:
+              cnpg.io/cluster: {{ .Release.Name }}-postgresql
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow from CNPG operator
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+      ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 8000
+{{- end }}
+---
+# =============================================================================
+# Redis NetworkPolicy - only allow from goapp and sentinel
+# =============================================================================
+{{- if .Values.redis.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-redis-network-policy
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "goapp-stack.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from goapp
+    - from:
+        - podSelector:
+            matchLabels:
+              app: fileshare
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow from sentinel
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: sentinel
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow cluster replication
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow from Redis operator (in default namespace)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+      ports:
+        - protocol: TCP
+          port: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-sentinel-network-policy
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "goapp-stack.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: sentinel
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from goapp
+    - from:
+        - podSelector:
+            matchLabels:
+              app: fileshare
+      ports:
+        - protocol: TCP
+          port: 26379
+    # Allow sentinel cluster communication
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: sentinel
+      ports:
+        - protocol: TCP
+          port: 26379
+    # Allow from Redis operator (in default namespace)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+      ports:
+        - protocol: TCP
+          port: 26379
+{{- end }}
+---
+# =============================================================================
+# Elasticsearch NetworkPolicy - only allow from goapp and cluster peers
+# =============================================================================
+{{- if .Values.elasticsearch.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-elasticsearch-network-policy
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "goapp-stack.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      elasticsearch.k8s.elastic.co/cluster-name: {{ .Release.Name }}-elasticsearch
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from goapp
+    - from:
+        - podSelector:
+            matchLabels:
+              app: fileshare
+      ports:
+        - protocol: TCP
+          port: 9200
+    # Allow cluster transport
+    - from:
+        - podSelector:
+            matchLabels:
+              elasticsearch.k8s.elastic.co/cluster-name: {{ .Release.Name }}-elasticsearch
+      ports:
+        - protocol: TCP
+          port: 9200
+        - protocol: TCP
+          port: 9300
+    # Allow from ECK operator
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: elastic-system
+      ports:
+        - protocol: TCP
+          port: 9200
+{{- end }}
+---
+# =============================================================================
+# RabbitMQ NetworkPolicy - only allow from goapp and cluster peers
+# =============================================================================
+{{- if .Values.rabbitmq.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-rabbitmq-network-policy
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "goapp-stack.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}-rabbitmq
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from goapp
+    - from:
+        - podSelector:
+            matchLabels:
+              app: fileshare
+      ports:
+        - protocol: TCP
+          port: 5672
+    # Allow cluster communication
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: {{ .Release.Name }}-rabbitmq
+      ports:
+        - protocol: TCP
+          port: 4369
+        - protocol: TCP
+          port: 25672
+    # Allow from RabbitMQ operator
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: rabbitmq-system
+      ports:
+        - protocol: TCP
+          port: 5672
+        - protocol: TCP
+          port: 15672
+{{- end }}
+{{- end }}

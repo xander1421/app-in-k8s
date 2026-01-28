@@ -1,0 +1,65 @@
+# helm unittest - Namespace and Pod Security Standards Tests
+suite: namespace security tests
+templates:
+  - templates/namespace.yaml
+tests:
+  # ==========================================================================
+  # BASIC NAMESPACE TESTS
+  # ==========================================================================
+  - it: should create a namespace
+    asserts:
+      - isKind:
+          of: Namespace
+      - equal:
+          path: metadata.name
+          value: goapp
+
+  # ==========================================================================
+  # POD SECURITY STANDARDS TESTS
+  # ==========================================================================
+  - it: should enforce restricted PSS by default
+    asserts:
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+          value: restricted
+
+  - it: should warn on restricted PSS by default
+    asserts:
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/warn"]
+          value: restricted
+
+  - it: should audit restricted PSS by default
+    asserts:
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/audit"]
+          value: restricted
+
+  - it: should have enforce-version label
+    asserts:
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce-version"]
+          value: latest
+
+  # ==========================================================================
+  # CUSTOM PSS LEVEL TESTS
+  # ==========================================================================
+  - it: should allow baseline PSS when configured
+    set:
+      podSecurityStandards:
+        enforce: baseline
+        warn: baseline
+        audit: baseline
+    asserts:
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+          value: baseline
+
+  - it: should allow privileged PSS when configured (not recommended)
+    set:
+      podSecurityStandards:
+        enforce: privileged
+    asserts:
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+          value: privileged

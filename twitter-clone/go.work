@@ -1,0 +1,12 @@
+go 1.22
+
+use (
+	./pkg
+	./services/fanout-service
+	./services/media-service
+	./services/notification-service
+	./services/search-service
+	./services/timeline-service
+	./services/tweet-service
+	./services/user-service
+)

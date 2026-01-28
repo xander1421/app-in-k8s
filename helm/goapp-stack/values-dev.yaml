@@ -1,0 +1,50 @@
+# Development environment values
+# Usage: helm install goapp ./helm/goapp-stack -f values-dev.yaml
+
+global:
+  storageClass: local-path
+
+namespace: goapp-dev
+
+# Reduced instances for development
+postgresql:
+  enabled: true
+  instances: 1
+  storage:
+    size: 1Gi
+
+redis:
+  enabled: true
+  replicas: 1
+  sentinel:
+    replicas: 1
+  storage:
+    size: 500Mi
+
+elasticsearch:
+  enabled: true
+  nodes: 1
+  storage:
+    size: 2Gi
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+rabbitmq:
+  enabled: true
+  replicas: 1
+  storage:
+    size: 500Mi
+
+goapp:
+  replicas: 1
+  image:
+    repository: localhost:5000/my-image
+    tag: latest
+    pullPolicy: Never
+  env:
+    RAILS_ENV: development

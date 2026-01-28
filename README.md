@@ -1,177 +1,290 @@
-TODO: Make ingress work on localhost
+# FileShare - Go HTTP/3 File Sharing Application
 
-## Objective
+A production-ready file sharing application built with Go, featuring HTTP/3 (QUIC) support, deployed on Kubernetes with Helm and operator-managed infrastructure.
 
-Your objective is run this rails application in PRODUCTION mode!
+## Architecture
 
-## Containers, Docker e Kubernetes
-
-You must create containers to each of these services:
-
-- Application
-- PostgreSQL
-- ElasticSearch
-- Redis
-- RabbitMQ
-
-The orchestration of these containers must performed by Kubernetes.
-
-### Set up PostgreSQL config
-
-Available configurations
-
-```Ruby
-PG_DATABASE=...
-PG_HOST=...
-PG_USER=...
-PG_PASSWORD=...
+```
+                           ┌─────────────────┐
+                           │  Envoy Gateway  │
+                           │   (HTTP/HTTPS)  │
+                           └────────┬────────┘
+                                    │
+                           ┌────────▼────────┐
+                           │   Go FileShare  │
+                           │   (3 replicas)  │
+                           │  HTTP/2 + HTTP/3│
+                           └────────┬────────┘
+                                    │
+        ┌───────────┬───────────┬───┴───┬───────────┐
+        │           │           │       │           │
+   ┌────▼────┐ ┌────▼────┐ ┌────▼───┐ ┌─▼──┐ ┌─────▼─────┐
+   │PostgreSQL│ │  Redis  │ │RabbitMQ│ │ ES │ │  Shared   │
+   │ (CNPG)  │ │Sentinel │ │Cluster │ │    │ │  Storage  │
+   │ 3 nodes │ │  3+3    │ │3 nodes │ │ 3  │ │(emptyDir) │
+   └─────────┘ └─────────┘ └────────┘ └────┘ └───────────┘
 ```
 
-### Set up ElasticSearch config
+## Features
 
-Available configurations
+- **HTTP/3 (QUIC)** - Ultra-fast file transfers via quic-go
+- **HTTP/2** - Multiplexed connections with TLS
+- **File Operations** - Upload, download, list, delete, share
+- **Full-text Search** - Elasticsearch-powered file search
+- **Background Jobs** - RabbitMQ for async processing (thumbnails, notifications)
+- **Caching & Pub/Sub** - Redis Sentinel for caching and cluster events
+- **HA Database** - CloudNativePG PostgreSQL with 3 replicas
+- **Zero-downtime Deployments** - Rolling updates with PDB
 
-```Ruby
-ELASTICSEARCH_URL=...
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Liveness probe |
+| GET | `/health/ready` | Readiness probe (checks all services) |
+| GET | `/cluster` | Cluster info (instance, peers, uptime) |
+| POST | `/files` | Upload file |
+| GET | `/files` | List all files |
+| GET | `/files/{id}` | Get file metadata |
+| GET | `/files/{id}/download` | Download file |
+| DELETE | `/files/{id}` | Delete file |
+| GET | `/search?q=` | Search files (Elasticsearch) |
+| POST | `/files/{id}/share` | Create share link |
+| GET | `/share/{token}` | Access shared file |
+| GET | `/queues` | Queue statistics (RabbitMQ) |
+
+## Prerequisites
+
+- Docker
+- kubectl
+- Helm 3.x
+- k3d (for local development)
+
+## Quick Start
+
+### 1. Create k3d Cluster
+
+```bash
+k3d cluster create app-k8s \
+  --servers 1 \
+  --agents 2 \
+  --port "80:80@loadbalancer" \
+  --port "443:443@loadbalancer"
 ```
 
-### Set up RabbitMQ config
+### 2. Install Operators
 
-The RabbitMQ consumer performs using Sneakers gem. You will have to start the sneakers to  create an instance to start listening to the messages posted in RabbitMQ.
-
-Available configurations
-
-```Ruby
-RABBITMQ_URL=...
-RABBITMQ_EXCHANGE=amq.direct
-RABBITMQ_QUEUE=...
+```bash
+./helm/goapp-stack/scripts/install-operators.sh
 ```
 
-#### Listening the messages
+This installs:
+- **CloudNativePG** - PostgreSQL operator
+- **Spotahome Redis Operator** - Redis with Sentinel
+- **ECK** - Elasticsearch operator
+- **RabbitMQ Cluster Operator** - RabbitMQ operator
+- **Envoy Gateway** - API Gateway
 
-Start sneakers using this command:
+### 3. Build and Import Image
 
-```Ruby
-WORKERS=Workers::LegislatorWorker bundle exec rake sneakers:run
+```bash
+# Build the Go application
+docker build -t fileshare:latest .
+
+# Import into k3d
+k3d image import fileshare:latest -c app-k8s
 ```
 
-### Set up Sidekiq/Redis config
+### 4. Deploy with Helm
 
-Sidekiq is a tool to manage the async job. The application will run a job after receiving a RabbitMQ's message. Sidekiq uses the Redis to persist his queue, you must configure the Redis and connect to the application.
+```bash
+# Create namespace with PSS labels
+kubectl create namespace goapp
+kubectl label namespace goapp \
+  pod-security.kubernetes.io/enforce=baseline \
+  pod-security.kubernetes.io/warn=baseline
 
-Available configurations
-
-```Ruby
-REDIS_URL=...
+# Deploy
+helm install goapp ./helm/goapp-stack \
+  -n goapp \
+  --set goapp.image.repository=fileshare \
+  --set goapp.image.tag=latest \
+  --set goapp.image.pullPolicy=Never
 ```
 
-#### Run sidekiq
+### 5. Enable HTTP/3 (Optional)
 
-```Ruby
-bundle exec sidekiq
+```bash
+helm upgrade goapp ./helm/goapp-stack \
+  -n goapp \
+  --set goapp.http3.enabled=true \
+  --set goapp.image.pullPolicy=Never
 ```
 
-### Set up Rails
+## Configuration
 
-You must run this command when run the first time the application, this command set up the Postgres database.
+### Helm Values
 
-```Ruby
-./bin/setup
+| Value | Default | Description |
+|-------|---------|-------------|
+| `goapp.replicas` | 3 | Number of app replicas |
+| `goapp.port` | 8080 | Application port |
+| `goapp.http3.enabled` | false | Enable HTTP/3 (QUIC) |
+| `postgresql.enabled` | true | Deploy PostgreSQL cluster |
+| `postgresql.instances` | 3 | PostgreSQL replicas |
+| `redis.enabled` | true | Deploy Redis with Sentinel |
+| `redis.replicas` | 3 | Redis replicas |
+| `elasticsearch.enabled` | true | Deploy Elasticsearch |
+| `elasticsearch.nodes` | 3 | Elasticsearch nodes |
+| `rabbitmq.enabled` | true | Deploy RabbitMQ cluster |
+| `rabbitmq.replicas` | 3 | RabbitMQ replicas |
+| `networkPolicy.enabled` | true | Enable NetworkPolicies |
+| `gateway.enabled` | true | Deploy Envoy Gateway |
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection URI (from CNPG secret) |
+| `REDIS_SENTINEL_ADDR` | Redis Sentinel address |
+| `REDIS_MASTER_NAME` | Redis master name (default: mymaster) |
+| `ELASTICSEARCH_URL` | Elasticsearch HTTP endpoint |
+| `RABBITMQ_URL` | RabbitMQ connection string (from operator secret) |
+
+## Security Features
+
+- **Pod Security Standards** - Baseline enforcement at namespace level
+- **SecurityContext** - Non-root user (65532), read-only filesystem, dropped capabilities
+- **ServiceAccount** - Dedicated SA with no token automount
+- **NetworkPolicies** - Zero-trust networking for all components
+- **Seccomp** - RuntimeDefault profile (optional custom profiles)
+- **AppArmor** - Runtime/default profile support
+
+## Monitoring
+
+### Check Component Status
+
+```bash
+# PostgreSQL
+kubectl get clusters.postgresql.cnpg.io -n goapp
+
+# Redis
+kubectl get redisfailovers -n goapp
+
+# Elasticsearch
+kubectl get elasticsearch -n goapp
+
+# RabbitMQ
+kubectl get rabbitmqclusters -n goapp
+
+# Application
+kubectl get pods -n goapp -l app=fileshare
 ```
 
-### Run Rails
+### Health Checks
 
-You should configure your application to run in PRODUCTION mode.
-tips: you can use ngix + puma/unicorn
+```bash
+# Port forward
+kubectl port-forward svc/goapp-goapp 8080:8080 -n goapp
 
-### To test if your application is working post message on RabbitMQ
+# Check health (HTTP)
+curl http://localhost:8080/health
 
-Post a message in the RabbitMQ queue with this structure to present the data
+# Check readiness (all services)
+curl http://localhost:8080/health/ready
 
-```Ruby
-{
-  "name": "Legislator",
-  "chamber": "house"
-}
+# With HTTP/3 enabled (HTTPS)
+curl -k https://localhost:8080/health
 ```
 
-Check the result in the root's page of you application
+## Testing
 
-`http://localhost:3000`
+### Run Helm Tests
 
--------------------------LOCAL-SETUP-------------------------
-------------
-RabbitMQ
-------------
-- kubectl apply -f DEVOPS\rabbitmq\rabbit-namespace.yaml
-- kubectl apply -f DEVOPS\rabbitmq\rabbit-secret.yaml -n rabbits
-- kubectl apply -f DEVOPS\rabbitmq\rabbit-rbac.yaml -n rabbits
-- kubectl apply -f DEVOPS\rabbitmq\rabbit-configmap.yaml -n rabbits
-- kubectl apply -f DEVOPS\rabbitmq\rabbit-statefulset.yaml -n rabbits
+```bash
+helm unittest ./helm/goapp-stack
+```
 
+### Test File Operations
 
-------------
-Redis && Sentinel
-------------
-- kubectl apply -f DEVOPS\redis\redis-configmap.yaml
-- kubectl apply -f DEVOPS\redis\redis-service.yaml
-- kubectl apply -f DEVOPS\redis\redis-statefulset.yaml
-- kubectl apply -f DEVOPS\redis\sentinel\sentinel-statefulset.yaml
+```bash
+# Upload
+curl -X POST -F "file=@test.txt" http://localhost:8080/files
 
+# List
+curl http://localhost:8080/files
 
-------------
-ElasticSearch
-------------
-- kubectl apply -f DEVOPS\elasticsearch\es-statefulset.yaml
-- kubectl apply -f DEVOPS\elasticsearch\es-service.yaml
+# Download
+curl http://localhost:8080/files/{id}/download
 
+# Search
+curl "http://localhost:8080/search?q=test"
+```
 
-------------
-PostgreSQL && PGPool
-------------
-- kubectl apply -f DEVOPS\postgresql\postgres-namespace.yaml
-- kubectl apply -f DEVOPS\postgresql\postgres-configmap.yaml -n database
-- kubectl apply -f DEVOPS\postgresql\postgres-secrets.yaml -n database
-- kubectl apply -f DEVOPS\postgresql\postgres-statefulset.yaml -n database
-- kubectl apply -f DEVOPS\postgresql\postgres-headless-svc.yaml -n database
-- kubectl apply -f DEVOPS\postgresql\pgpool\pgpool-secret.yaml -n database
-- kubectl apply -f DEVOPS\postgresql\pgpool\pgpool-deployment.yaml -n database
-- kubectl apply -f DEVOPS\postgresql\pgpool\pgpool-svc.yaml -n database
-- kubectl apply -f DEVOPS\postgresql\pgpool\pgpool-svc-nodeport.yaml -n database
+## Project Structure
 
+```
+.
+├── cmd/server/          # Application entrypoint
+├── internal/
+│   ├── cache/           # Redis client (Sentinel)
+│   ├── config/          # Configuration loading
+│   ├── database/        # PostgreSQL client
+│   ├── handlers/        # HTTP handlers
+│   ├── models/          # Data models
+│   ├── queue/           # RabbitMQ client
+│   ├── search/          # Elasticsearch client
+│   └── server/          # HTTP/2 + HTTP/3 server
+├── helm/goapp-stack/    # Helm chart
+│   ├── templates/       # Kubernetes manifests
+│   ├── tests/           # Helm unit tests
+│   ├── scripts/         # Operator installation
+│   └── values.yaml      # Default values
+└── Dockerfile           # Multi-stage distroless build
+```
 
-------------
-### Rails-App
-------------
-# Build docker image
-- docker build -t localhost:5000/my-image .
+## Operators Used
 
-# Use created image to deploy our application
-- kubectl apply -f DEVOPS\railsApp\app-namespace.yaml
-- kubectl apply -f DEVOPS\railsApp\app-configmap.yaml
-- kubectl apply -f DEVOPS\railsApp\app-deployment.yaml
+| Service | Operator | CRD |
+|---------|----------|-----|
+| PostgreSQL | CloudNativePG | `Cluster` |
+| Redis | Spotahome Redis Operator | `RedisFailover` |
+| Elasticsearch | ECK | `Elasticsearch` |
+| RabbitMQ | RabbitMQ Cluster Operator | `RabbitmqCluster` |
+| Gateway | Envoy Gateway | `Gateway`, `HTTPRoute` |
 
+## Troubleshooting
 
--------------------------TESTING-------------------------
-# Get pod-name to then run db restore
-- kubectl get pods -o=name --field-selector=status.phase=Running  | head -1
+### Pods not starting
 
-# Now using the output of the last command, change the pod name
-- kubectl exec CHANGE_THIS_POD_NAME_TO_PREVIOUS_COMMAND_OUTPUT -- rails db:setup
+```bash
+# Check events
+kubectl get events -n goapp --sort-by='.lastTimestamp'
 
-# Port-forward the connection to the pod and check the connection
-- kubectl port-forward CHANGE_THIS_POD_NAME_TO_PREVIOUS_COMMAND_OUTPUT 3000:3000
+# Check pod logs
+kubectl logs -n goapp -l app=fileshare --tail=50
+```
 
-# Create a message in rabbitmq-queue
-- kubectl -n rabbits port-forward rabbitmq-0 8000:15672
+### Database connection issues
 
-# Open link in browser to see if rabbitmq is working ok.
-# Note: Use user:guest pass:guest to login
-http://localhost:8000/#/queues/
-# Select the only queue that exists there and finally
-# Choose Publish message and send this example
-{
-  "name": "Legislator",
-  "chamber": "house"
-}
+```bash
+# Check PostgreSQL cluster status
+kubectl get clusters.postgresql.cnpg.io goapp-postgresql -n goapp -o wide
 
+# Get connection secret
+kubectl get secret goapp-postgresql-app -n goapp -o jsonpath='{.data.uri}' | base64 -d
+```
+
+### Redis Sentinel issues
+
+```bash
+# Check RedisFailover status
+kubectl get redisfailovers goapp-redis -n goapp
+
+# Check Sentinel logs
+kubectl logs -n goapp -l app.kubernetes.io/component=sentinel --tail=20
+```
+
+## License
+
+MIT

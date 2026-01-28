@@ -1,0 +1,228 @@
+# Default values for goapp-stack
+# This is a YAML-formatted file.
+
+global:
+  storageClass: local-path
+
+namespace: goapp
+
+# =============================================================================
+# POD SECURITY STANDARDS (PSS)
+# =============================================================================
+# Enforced at namespace level - prevents privileged containers, host access, etc.
+# Reference: https://kubernetes.io/docs/concepts/security/pod-security-standards/
+podSecurityStandards:
+  # Note: "baseline" required for Redis/Elasticsearch operators (don't support "restricted")
+  enforce: baseline    # restricted | baseline | privileged
+  warn: baseline
+  audit: baseline
+
+# =============================================================================
+# SECCOMP PROFILE
+# =============================================================================
+# Syscall filtering - blocks dangerous syscalls used in container escapes
+# Reference: Container escape techniques (mount, unshare, setns, init_module, etc.)
+seccompProfile:
+  custom:
+    enabled: false       # Set to true to use custom restrictive profile
+    profile: "profiles/restricted-container.json"
+
+# =============================================================================
+# APPARMOR
+# =============================================================================
+# Mandatory Access Control - kernel-level restriction
+appArmor:
+  enabled: true
+  profile: "runtime/default"   # or "localhost/custom-profile"
+
+# =============================================================================
+# DATA STORES (Operator-managed)
+# =============================================================================
+
+# CloudNativePG PostgreSQL Cluster
+postgresql:
+  enabled: true
+  instances: 3
+  storage:
+    size: 5Gi
+  database: db3
+  owner: app
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 1Gi
+      cpu: 1000m
+
+# Spotahome Redis Operator - RedisFailover
+redis:
+  enabled: true
+  replicas: 3
+  sentinel:
+    replicas: 3
+    resources:
+      requests:
+        cpu: 100m
+        memory: 100Mi
+      limits:
+        cpu: 400m
+        memory: 500Mi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 100Mi
+    limits:
+      cpu: 400m
+      memory: 500Mi
+  storage:
+    size: 1Gi
+
+# ECK Elasticsearch
+elasticsearch:
+  enabled: true
+  version: "8.15.0"  # 8.x has better cgroups v2 support
+  nodes: 3
+  storage:
+    size: 10Gi
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 100m
+    limits:
+      memory: 2Gi
+      cpu: 1000m
+  config:
+    node.store.allow_mmap: false
+    xpack.security.enabled: false  # Disable auth for dev
+
+# RabbitMQ Cluster Operator
+rabbitmq:
+  enabled: true
+  replicas: 3
+  storage:
+    size: 1Gi
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+  additionalPlugins:
+    - rabbitmq_management
+    - rabbitmq_peer_discovery_k8s
+
+# =============================================================================
+# GO FILESHARE APPLICATION
+# =============================================================================
+# High-performance file sharing API with HTTP/3 (QUIC) support
+goapp:
+  replicas: 3
+  image:
+    repository: fileshare
+    tag: latest
+    pullPolicy: IfNotPresent
+  port: 8080  # Go default HTTP port
+
+  # HTTP/3 (QUIC) support - requires TLS
+  http3:
+    enabled: false  # Set to true to enable HTTP/3 with self-signed certs
+
+  # Rolling update strategy
+  strategy:
+    maxSurge: 1
+    maxUnavailable: 0
+
+  # Graceful shutdown timeout
+  terminationGracePeriodSeconds: 15  # Go apps shutdown fast
+
+  # Resource requests and limits (Go uses much less memory than Ruby)
+  resources:
+    requests:
+      memory: 32Mi   # Go apps are lightweight
+      cpu: 50m
+    limits:
+      memory: 128Mi  # Much less than Ruby's 512Mi
+      cpu: 500m
+
+  # Security context - Defense in depth
+  securityContext:
+    runAsUser: 65532   # distroless nonroot user
+    runAsGroup: 65532
+    fsGroup: 65532
+    readOnlyRootFilesystem: true
+    capabilities:
+      add: []
+
+  # Health probes (Go starts instantly)
+  probes:
+    startup:
+      path: /health
+      initialDelaySeconds: 2   # Go starts in ms
+      periodSeconds: 2
+      timeoutSeconds: 2
+      failureThreshold: 10
+    liveness:
+      path: /health
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+    readiness:
+      path: /health/ready
+      initialDelaySeconds: 3
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 3
+
+  # PodDisruptionBudget
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+  # Environment variables
+  env:
+    ENVIRONMENT: production
+    MAX_UPLOAD_SIZE: "104857600"  # 100MB
+    REDIS_MASTER_NAME: mymaster
+
+  # Pod scheduling
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  # Upload storage
+  uploads:
+    size: 1Gi  # emptyDir size limit for uploads
+
+# =============================================================================
+# NETWORK SECURITY
+# =============================================================================
+
+# NetworkPolicy for zero-trust networking
+# Reference: https://www.alexpruteanu.cloud/blog/kubernetes-best-practices
+networkPolicy:
+  enabled: true
+
+# =============================================================================
+# API GATEWAY (Envoy Gateway)
+# =============================================================================
+# Reference: https://gateway.envoyproxy.io/
+
+gateway:
+  enabled: true
+  hostname: goapp.local
+  gatewayClassName: eg
+  annotations: {}
+
+  # TLS Configuration
+  tls:
+    enabled: false
+    secretName: ""           # Name of TLS secret, defaults to <release>-tls
+    redirectHttp: true       # Redirect HTTP to HTTPS when TLS enabled
+
+  # Timeouts
+  timeouts:
+    request: "30s"
+    backendRequest: "30s"

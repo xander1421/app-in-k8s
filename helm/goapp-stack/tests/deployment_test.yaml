@@ -1,0 +1,230 @@
+# helm unittest - Deployment Security Tests
+# Run: helm unittest ./helm/goapp-stack
+suite: deployment security tests
+templates:
+  - templates/goapp-deployment.yaml
+tests:
+  # ==========================================================================
+  # BASIC DEPLOYMENT TESTS
+  # ==========================================================================
+  - it: should create a deployment
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: goapp-goapp
+
+  - it: should have correct replica count
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: should use correct image
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "localhost:5000/my-image:latest"
+
+  # ==========================================================================
+  # ROLLING UPDATE STRATEGY TESTS
+  # ==========================================================================
+  - it: should have rolling update strategy
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: RollingUpdate
+
+  - it: should have maxSurge of 1
+    asserts:
+      - equal:
+          path: spec.strategy.rollingUpdate.maxSurge
+          value: 1
+
+  - it: should have maxUnavailable of 0 for zero-downtime
+    asserts:
+      - equal:
+          path: spec.strategy.rollingUpdate.maxUnavailable
+          value: 0
+
+  # ==========================================================================
+  # SECURITY CONTEXT TESTS - POD LEVEL
+  # ==========================================================================
+  - it: should run as non-root
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+
+  - it: should run as user 1000
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 1000
+
+  - it: should run as group 1000
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsGroup
+          value: 1000
+
+  - it: should have fsGroup 1000
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 1000
+
+  - it: should have seccomp profile RuntimeDefault
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  # ==========================================================================
+  # SECURITY CONTEXT TESTS - CONTAINER LEVEL
+  # ==========================================================================
+  - it: should not allow privilege escalation
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+
+  - it: should not be privileged
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.privileged
+          value: false
+
+  - it: should have read-only root filesystem
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+
+  - it: should drop ALL capabilities
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+
+  # ==========================================================================
+  # SERVICE ACCOUNT TESTS
+  # ==========================================================================
+  - it: should not automount service account token
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  # ==========================================================================
+  # HEALTH PROBE TESTS
+  # ==========================================================================
+  - it: should have startup probe
+    asserts:
+      - exists:
+          path: spec.template.spec.containers[0].startupProbe
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /health
+
+  - it: should have liveness probe
+    asserts:
+      - exists:
+          path: spec.template.spec.containers[0].livenessProbe
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
+
+  - it: should have readiness probe checking dependencies
+    asserts:
+      - exists:
+          path: spec.template.spec.containers[0].readinessProbe
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /health/ready
+
+  # ==========================================================================
+  # GRACEFUL SHUTDOWN TESTS
+  # ==========================================================================
+  - it: should have termination grace period
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 30
+
+  - it: should have preStop hook for graceful shutdown
+    asserts:
+      - exists:
+          path: spec.template.spec.containers[0].lifecycle.preStop
+
+  # ==========================================================================
+  # VOLUME TESTS (for read-only filesystem)
+  # ==========================================================================
+  - it: should have tmp volume
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tmp
+          any: true
+
+  - it: should have rails-tmp volume
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: rails-tmp
+          any: true
+
+  - it: should mount tmp volume
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tmp
+            mountPath: /tmp
+          any: true
+
+  # ==========================================================================
+  # RESOURCE LIMITS TESTS
+  # ==========================================================================
+  - it: should have resource requests
+    asserts:
+      - exists:
+          path: spec.template.spec.containers[0].resources.requests
+
+  - it: should have resource limits
+    asserts:
+      - exists:
+          path: spec.template.spec.containers[0].resources.limits
+
+  # ==========================================================================
+  # APPARMOR TESTS
+  # ==========================================================================
+  - it: should have AppArmor annotation when enabled
+    set:
+      appArmor:
+        enabled: true
+        profile: runtime/default
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["container.apparmor.security.beta.kubernetes.io/fileshare"]
+          value: runtime/default
+
+  # ==========================================================================
+  # CUSTOM SECCOMP TESTS
+  # ==========================================================================
+  - it: should use custom seccomp profile when enabled
+    set:
+      seccompProfile:
+        custom:
+          enabled: true
+          profile: "profiles/restricted-container.json"
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: Localhost
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.localhostProfile
+          value: "profiles/restricted-container.json"

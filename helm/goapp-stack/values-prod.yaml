@@ -1,0 +1,157 @@
+# Production environment values
+# Usage: helm install goapp ./helm/goapp-stack -f values-prod.yaml
+
+global:
+  # Use a production-grade storage class
+  storageClass: standard
+
+namespace: goapp-prod
+
+# Full HA PostgreSQL cluster
+postgresql:
+  enabled: true
+  instances: 3
+  storage:
+    size: 50Gi
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 500m
+    limits:
+      memory: 4Gi
+      cpu: 2000m
+
+# Full HA Redis with Sentinel
+redis:
+  enabled: true
+  replicas: 3
+  sentinel:
+    replicas: 3
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  storage:
+    size: 10Gi
+
+# Full HA Elasticsearch cluster
+elasticsearch:
+  enabled: true
+  nodes: 3
+  storage:
+    size: 100Gi
+  resources:
+    requests:
+      memory: 2Gi
+      cpu: 500m
+    limits:
+      memory: 4Gi
+      cpu: 2000m
+
+# Full HA RabbitMQ cluster
+rabbitmq:
+  enabled: true
+  replicas: 3
+  storage:
+    size: 10Gi
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 200m
+    limits:
+      memory: 1Gi
+      cpu: 1000m
+
+# Production Rails app deployment
+goapp:
+  replicas: 5
+  image:
+    repository: your-registry.example.com/goapp
+    tag: v1.0.0
+    pullPolicy: Always
+
+  # Zero-downtime rolling updates
+  strategy:
+    maxSurge: 2
+    maxUnavailable: 0
+
+  terminationGracePeriodSeconds: 60
+
+  # Production resources - Guaranteed QoS for memory
+  # Reference: https://www.alexpruteanu.cloud/blog/kubernetes-best-practices
+  resources:
+    requests:
+      memory: 1Gi
+      cpu: 250m
+    limits:
+      memory: 1Gi  # Same as request for Guaranteed QoS
+      cpu: 1000m
+
+  # Security hardening
+  securityContext:
+    runAsUser: 65532  # nonroot user in distroless
+    runAsGroup: 65532
+    fsGroup: 65532
+    readOnlyRootFilesystem: true
+
+  # Conservative probe settings for production
+  probes:
+    startup:
+      path: /health              # Lightweight - just checks if process is up
+      initialDelaySeconds: 15
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 60       # 5 min max startup time
+    liveness:
+      path: /health              # Lightweight - don't check dependencies
+      initialDelaySeconds: 60
+      periodSeconds: 15
+      timeoutSeconds: 10
+      failureThreshold: 3
+    readiness:
+      path: /health/ready        # Full check - verifies DB, Redis, ES connectivity
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 3
+
+  # PDB for high availability
+  pdb:
+    enabled: true
+    minAvailable: 3  # At least 3 of 5 pods must be available
+
+  env:
+    RAILS_ENV: production
+
+  # IMPORTANT: Override these in your deployment pipeline
+  secrets:
+    secretKeyBase: "CHANGE_ME_TO_A_REAL_SECRET"
+
+  # Spread pods across nodes for HA
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app: goapp
+            topologyKey: kubernetes.io/hostname
+
+# Enable network policies in production
+networkPolicy:
+  enabled: true
+
+gateway:
+  enabled: true
+  hostname: app.example.com

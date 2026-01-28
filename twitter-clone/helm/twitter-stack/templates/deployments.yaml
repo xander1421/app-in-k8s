@@ -1,0 +1,422 @@
+---
+# User Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: user-service
+spec:
+  replicas: {{ .Values.replicas.userService }}
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+        - name: user-service
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/user-service:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: twitter-config
+          env:
+            - name: INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: twitter-db-credentials
+                  key: password
+            - name: DATABASE_URL
+              value: "postgres://twitter:$(DB_PASSWORD)@$(USERS_DB_HOST):$(DB_PORT)/users_db?sslmode=disable"
+            - name: REDIS_ADDR
+              value: "rfr-twitter-redis.{{ .Values.namespace }}.svc.cluster.local:6379"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: twitter-rabbitmq-default-user
+                  key: username
+            - name: RABBITMQ_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: twitter-rabbitmq-default-user
+                  key: password
+            - name: RABBITMQ_URL
+              value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASS)@$(RABBITMQ_HOST):$(RABBITMQ_PORT)/"
+          resources:
+{{ toYaml .Values.resources.default | indent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+---
+# Tweet Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tweet-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: tweet-service
+spec:
+  replicas: {{ .Values.replicas.tweetService }}
+  selector:
+    matchLabels:
+      app: tweet-service
+  template:
+    metadata:
+      labels:
+        app: tweet-service
+    spec:
+      containers:
+        - name: tweet-service
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/tweet-service:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: twitter-config
+          env:
+            - name: INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: twitter-db-credentials
+                  key: password
+            - name: DATABASE_URL
+              value: "postgres://twitter:$(DB_PASSWORD)@$(TWEETS_DB_HOST):$(DB_PORT)/tweets_db?sslmode=disable"
+            - name: REDIS_ADDR
+              value: "rfr-twitter-redis.{{ .Values.namespace }}.svc.cluster.local:6379"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: twitter-rabbitmq-default-user
+                  key: username
+            - name: RABBITMQ_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: twitter-rabbitmq-default-user
+                  key: password
+            - name: RABBITMQ_URL
+              value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASS)@$(RABBITMQ_HOST):$(RABBITMQ_PORT)/"
+          resources:
+{{ toYaml .Values.resources.default | indent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+---
+# Timeline Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: timeline-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: timeline-service
+spec:
+  replicas: {{ .Values.replicas.timelineService }}
+  selector:
+    matchLabels:
+      app: timeline-service
+  template:
+    metadata:
+      labels:
+        app: timeline-service
+    spec:
+      containers:
+        - name: timeline-service
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/timeline-service:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: twitter-config
+          env:
+            - name: INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: REDIS_ADDR
+              value: "rfr-twitter-redis.{{ .Values.namespace }}.svc.cluster.local:6379"
+          resources:
+{{ toYaml .Values.resources.default | indent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+---
+# Fanout Service (Worker)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fanout-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: fanout-service
+spec:
+  replicas: {{ .Values.replicas.fanoutService }}
+  selector:
+    matchLabels:
+      app: fanout-service
+  template:
+    metadata:
+      labels:
+        app: fanout-service
+    spec:
+      containers:
+        - name: fanout-service
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/fanout-service:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: twitter-config
+          env:
+            - name: INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: REDIS_ADDR
+              value: "rfr-twitter-redis.{{ .Values.namespace }}.svc.cluster.local:6379"
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: twitter-rabbitmq-default-user
+                  key: username
+            - name: RABBITMQ_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: twitter-rabbitmq-default-user
+                  key: password
+            - name: RABBITMQ_URL
+              value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASS)@$(RABBITMQ_HOST):$(RABBITMQ_PORT)/"
+          resources:
+{{ toYaml .Values.resources.fanout | indent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+---
+# Media Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: media-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: media-service
+spec:
+  replicas: {{ .Values.replicas.mediaService }}
+  selector:
+    matchLabels:
+      app: media-service
+  template:
+    metadata:
+      labels:
+        app: media-service
+    spec:
+      containers:
+        - name: media-service
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/media-service:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: twitter-config
+          env:
+            - name: INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: twitter-minio-credentials
+                  key: access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: twitter-minio-credentials
+                  key: secret-key
+            - name: RABBITMQ_USER
+              valueFrom:
+                secretKeyRef:
+                  name: twitter-rabbitmq-default-user
+                  key: username
+            - name: RABBITMQ_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: twitter-rabbitmq-default-user
+                  key: password
+            - name: RABBITMQ_URL
+              value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASS)@$(RABBITMQ_HOST):$(RABBITMQ_PORT)/"
+          resources:
+{{ toYaml .Values.resources.default | indent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+---
+# Notification Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: notification-service
+spec:
+  replicas: {{ .Values.replicas.notificationService }}
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+    spec:
+      containers:
+        - name: notification-service
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/notification-service:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: twitter-config
+          env:
+            - name: INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: twitter-db-credentials
+                  key: password
+            - name: DATABASE_URL
+              value: "postgres://twitter:$(DB_PASSWORD)@$(NOTIF_DB_HOST):$(DB_PORT)/notif_db?sslmode=disable"
+          resources:
+{{ toYaml .Values.resources.default | indent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+---
+# Search Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: search-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: search-service
+spec:
+  replicas: {{ .Values.replicas.searchService }}
+  selector:
+    matchLabels:
+      app: search-service
+  template:
+    metadata:
+      labels:
+        app: search-service
+    spec:
+      containers:
+        - name: search-service
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/search-service:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: twitter-config
+          env:
+            - name: INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+{{ toYaml .Values.resources.default | indent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5

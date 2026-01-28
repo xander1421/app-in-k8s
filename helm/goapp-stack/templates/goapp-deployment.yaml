@@ -1,0 +1,165 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "goapp-stack.goapp.serviceName" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "goapp-stack.labels" . | nindent 4 }}
+    app: fileshare
+spec:
+  replicas: {{ .Values.goapp.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: {{ .Values.goapp.strategy.maxSurge | default 1 }}
+      maxUnavailable: {{ .Values.goapp.strategy.maxUnavailable | default 0 }}
+  selector:
+    matchLabels:
+      app: fileshare
+      {{- include "goapp-stack.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: fileshare
+        {{- include "goapp-stack.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/goapp-configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/goapp-secret.yaml") . | sha256sum }}
+        {{- if .Values.appArmor.enabled }}
+        container.apparmor.security.beta.kubernetes.io/fileshare: {{ .Values.appArmor.profile | default "runtime/default" }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-goapp
+      terminationGracePeriodSeconds: {{ .Values.goapp.terminationGracePeriodSeconds | default 15 }}
+      automountServiceAccountToken: false
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ .Values.goapp.securityContext.runAsUser | default 65532 }}
+        runAsGroup: {{ .Values.goapp.securityContext.runAsGroup | default 65532 }}
+        fsGroup: {{ .Values.goapp.securityContext.fsGroup | default 65532 }}
+        {{- if .Values.seccompProfile.custom.enabled }}
+        seccompProfile:
+          type: Localhost
+          localhostProfile: {{ .Values.seccompProfile.custom.profile }}
+        {{- else }}
+        seccompProfile:
+          type: RuntimeDefault
+        {{- end }}
+
+      containers:
+        - name: fileshare
+          image: "{{ .Values.goapp.image.repository }}:{{ .Values.goapp.image.tag }}"
+          imagePullPolicy: {{ .Values.goapp.image.pullPolicy }}
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: {{ .Values.goapp.securityContext.readOnlyRootFilesystem | default true }}
+            capabilities:
+              drop:
+                - ALL
+              {{- if .Values.goapp.securityContext.capabilities.add }}
+              add:
+                {{- toYaml .Values.goapp.securityContext.capabilities.add | nindent 16 }}
+              {{- end }}
+
+          ports:
+            - name: http
+              containerPort: {{ .Values.goapp.port }}
+              protocol: TCP
+            {{- if .Values.goapp.http3.enabled }}
+            - name: http3
+              containerPort: {{ .Values.goapp.port }}
+              protocol: UDP
+            {{- end }}
+
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-goapp-config
+          env:
+            # PostgreSQL password from CloudNativePG-generated secret
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-postgresql-app
+                  key: uri
+            # RabbitMQ credentials from operator secret
+            - name: RABBITMQ_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-rabbitmq-default-user
+                  key: connection_string
+
+          {{- with .Values.goapp.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: uploads
+              mountPath: /data/uploads
+
+          startupProbe:
+            httpGet:
+              path: {{ .Values.goapp.probes.startup.path | default "/health" }}
+              port: http
+              {{- if .Values.goapp.http3.enabled }}
+              scheme: HTTPS
+              {{- end }}
+            initialDelaySeconds: {{ .Values.goapp.probes.startup.initialDelaySeconds | default 2 }}
+            periodSeconds: {{ .Values.goapp.probes.startup.periodSeconds | default 2 }}
+            timeoutSeconds: {{ .Values.goapp.probes.startup.timeoutSeconds | default 2 }}
+            failureThreshold: {{ .Values.goapp.probes.startup.failureThreshold | default 10 }}
+
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.goapp.probes.liveness.path | default "/health" }}
+              port: http
+              {{- if .Values.goapp.http3.enabled }}
+              scheme: HTTPS
+              {{- end }}
+            initialDelaySeconds: {{ .Values.goapp.probes.liveness.initialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.goapp.probes.liveness.periodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.goapp.probes.liveness.timeoutSeconds | default 3 }}
+            failureThreshold: {{ .Values.goapp.probes.liveness.failureThreshold | default 3 }}
+
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.goapp.probes.readiness.path | default "/health/ready" }}
+              port: http
+              {{- if .Values.goapp.http3.enabled }}
+              scheme: HTTPS
+              {{- end }}
+            initialDelaySeconds: {{ .Values.goapp.probes.readiness.initialDelaySeconds | default 3 }}
+            periodSeconds: {{ .Values.goapp.probes.readiness.periodSeconds | default 5 }}
+            timeoutSeconds: {{ .Values.goapp.probes.readiness.timeoutSeconds | default 3 }}
+            failureThreshold: {{ .Values.goapp.probes.readiness.failureThreshold | default 3 }}
+
+          # Note: distroless doesn't have shell, so no preStop exec hook
+          # Go handles graceful shutdown via SIGTERM signal handling
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 50Mi
+        - name: uploads
+          emptyDir:
+            sizeLimit: {{ .Values.goapp.uploads.size | default "1Gi" }}
+
+      {{- with .Values.goapp.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.goapp.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.goapp.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

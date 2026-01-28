@@ -1,0 +1,38 @@
+{{- if .Values.redis.enabled }}
+---
+apiVersion: databases.spotahome.com/v1
+kind: RedisFailover
+metadata:
+  name: twitter-redis
+  namespace: {{ .Values.namespace }}
+spec:
+  sentinel:
+    replicas: {{ .Values.redis.sentinels }}
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+  redis:
+    replicas: {{ .Values.redis.replicas }}
+    resources:
+{{ toYaml .Values.redis.resources | indent 6 }}
+    customConfig:
+      - "maxmemory 512mb"
+      - "maxmemory-policy allkeys-lru"
+      - "save 900 1"
+      - "save 300 10"
+
+---
+# Redis Secret for password
+apiVersion: v1
+kind: Secret
+metadata:
+  name: twitter-redis-password
+  namespace: {{ .Values.namespace }}
+type: Opaque
+stringData:
+  password: ""
+{{- end }}

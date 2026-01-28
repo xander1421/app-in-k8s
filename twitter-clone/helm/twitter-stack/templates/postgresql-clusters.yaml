@@ -1,0 +1,130 @@
+{{- if .Values.postgresql.enabled }}
+---
+# Users Database Cluster
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: users-db
+  namespace: {{ .Values.namespace }}
+spec:
+  instances: {{ .Values.postgresql.usersDb.instances }}
+
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: "256MB"
+
+  bootstrap:
+    initdb:
+      database: users_db
+      owner: twitter
+      secret:
+        name: users-db-credentials
+
+  storage:
+    size: {{ .Values.postgresql.usersDb.storage }}
+    {{- if .Values.postgresql.usersDb.storageClass }}
+    storageClass: {{ .Values.postgresql.usersDb.storageClass }}
+    {{- end }}
+
+  monitoring:
+    enablePodMonitor: false
+
+---
+# Users DB Credentials Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: users-db-credentials
+  namespace: {{ .Values.namespace }}
+type: kubernetes.io/basic-auth
+stringData:
+  username: twitter
+  password: twitter-secret-password
+
+---
+# Tweets Database Cluster
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: tweets-db
+  namespace: {{ .Values.namespace }}
+spec:
+  instances: {{ .Values.postgresql.tweetsDb.instances }}
+
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: "256MB"
+
+  bootstrap:
+    initdb:
+      database: tweets_db
+      owner: twitter
+      secret:
+        name: tweets-db-credentials
+
+  storage:
+    size: {{ .Values.postgresql.tweetsDb.storage }}
+    {{- if .Values.postgresql.tweetsDb.storageClass }}
+    storageClass: {{ .Values.postgresql.tweetsDb.storageClass }}
+    {{- end }}
+
+  monitoring:
+    enablePodMonitor: false
+
+---
+# Tweets DB Credentials Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tweets-db-credentials
+  namespace: {{ .Values.namespace }}
+type: kubernetes.io/basic-auth
+stringData:
+  username: twitter
+  password: twitter-secret-password
+
+---
+# Notifications Database Cluster
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: notif-db
+  namespace: {{ .Values.namespace }}
+spec:
+  instances: {{ .Values.postgresql.notifDb.instances }}
+
+  postgresql:
+    parameters:
+      max_connections: "100"
+      shared_buffers: "128MB"
+
+  bootstrap:
+    initdb:
+      database: notif_db
+      owner: twitter
+      secret:
+        name: notif-db-credentials
+
+  storage:
+    size: {{ .Values.postgresql.notifDb.storage }}
+    {{- if .Values.postgresql.notifDb.storageClass }}
+    storageClass: {{ .Values.postgresql.notifDb.storageClass }}
+    {{- end }}
+
+  monitoring:
+    enablePodMonitor: false
+
+---
+# Notifications DB Credentials Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: notif-db-credentials
+  namespace: {{ .Values.namespace }}
+type: kubernetes.io/basic-auth
+stringData:
+  username: twitter
+  password: twitter-secret-password
+{{- end }}

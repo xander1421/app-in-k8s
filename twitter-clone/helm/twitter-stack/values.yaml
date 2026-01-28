@@ -1,0 +1,155 @@
+# Default values for twitter-stack
+
+namespace: twitter
+
+# Image settings
+image:
+  registry: ghcr.io
+  repository: alexprut/twitter-clone
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Service replica counts
+replicas:
+  userService: 2
+  tweetService: 2
+  timelineService: 2
+  fanoutService: 3
+  mediaService: 2
+  notificationService: 2
+  searchService: 2
+
+# Resource limits
+resources:
+  default:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  fanout:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# PostgreSQL (CloudNativePG)
+postgresql:
+  enabled: true
+  usersDb:
+    instances: 2
+    storage: 10Gi
+    storageClass: ""
+  tweetsDb:
+    instances: 2
+    storage: 20Gi
+    storageClass: ""
+  notifDb:
+    instances: 1
+    storage: 5Gi
+    storageClass: ""
+
+# Redis (Spotahome Operator)
+redis:
+  enabled: true
+  replicas: 2
+  sentinels: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Elasticsearch (ECK)
+elasticsearch:
+  enabled: true
+  version: "8.13.0"
+  nodeCount: 2
+  storage: 20Gi
+  storageClass: ""
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+# RabbitMQ (RabbitMQ Operator)
+rabbitmq:
+  enabled: true
+  replicas: 2
+  storage: 10Gi
+  storageClass: ""
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+# MinIO (MinIO Operator)
+minio:
+  enabled: true
+  servers: 4
+  volumesPerServer: 1
+  storage: 20Gi
+  storageClass: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# Envoy Gateway
+gateway:
+  enabled: true
+  className: envoy
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+    - name: https
+      port: 443
+      protocol: HTTPS
+
+# Service-specific settings
+services:
+  userService:
+    port: 8080
+  tweetService:
+    port: 8080
+  timelineService:
+    port: 8080
+  mediaService:
+    port: 8080
+  notificationService:
+    port: 8080
+  searchService:
+    port: 8080
+
+# Autoscaling
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Secrets (override these in production!)
+secrets:
+  dbPassword: "twitter-secret-password"
+  minioAccessKey: "minio"
+  minioSecretKey: "minio-secret-key"
+
+# Pod Disruption Budgets
+pdb:
+  enabled: true

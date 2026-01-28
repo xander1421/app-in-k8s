@@ -1,0 +1,35 @@
+{{- if .Values.redis.enabled }}
+apiVersion: databases.spotahome.com/v1
+kind: RedisFailover
+metadata:
+  name: {{ .Release.Name }}-redis
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "goapp-stack.labels" . | nindent 4 }}
+spec:
+  sentinel:
+    replicas: {{ .Values.redis.sentinel.replicas }}
+    {{- with .Values.redis.sentinel.resources }}
+    resources:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+
+  redis:
+    replicas: {{ .Values.redis.replicas }}
+    {{- with .Values.redis.resources }}
+    resources:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    storage:
+      keepAfterDeletion: false
+      persistentVolumeClaim:
+        metadata:
+          name: {{ .Release.Name }}-redis-data
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: {{ .Values.redis.storage.size }}
+          storageClassName: {{ .Values.global.storageClass }}
+{{- end }}

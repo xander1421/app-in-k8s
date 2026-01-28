@@ -1,0 +1,169 @@
+name: Helm Chart Tests
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'helm/**'
+      - '.github/workflows/helm-test.yaml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'helm/**'
+
+jobs:
+  lint:
+    name: Lint Helm Chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.13.0
+
+      - name: Lint Chart
+        run: helm lint ./helm/railsapp-stack
+
+  template:
+    name: Template Rendering
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.13.0
+
+      - name: Template with default values
+        run: helm template test ./helm/railsapp-stack
+
+      - name: Template with dev values
+        run: helm template test ./helm/railsapp-stack -f ./helm/railsapp-stack/values-dev.yaml
+
+      - name: Template with prod values
+        run: helm template test ./helm/railsapp-stack -f ./helm/railsapp-stack/values-prod.yaml
+
+      - name: Template with components disabled
+        run: |
+          helm template test ./helm/railsapp-stack \
+            --set postgresql.enabled=false \
+            --set redis.enabled=false \
+            --set elasticsearch.enabled=false \
+            --set rabbitmq.enabled=false \
+            --set gateway.enabled=false
+
+  unittest:
+    name: Helm Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.13.0
+
+      - name: Install helm-unittest plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest
+
+      - name: Run unit tests
+        run: helm unittest ./helm/railsapp-stack
+
+  schema-validation:
+    name: Kubernetes Schema Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.13.0
+
+      - name: Install kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Validate Kubernetes schemas
+        run: |
+          helm template test ./helm/railsapp-stack > /tmp/manifests.yaml
+          kubeconform -summary \
+            -skip "Cluster,RedisFailover,Elasticsearch,RabbitmqCluster,Gateway,HTTPRoute" \
+            /tmp/manifests.yaml
+
+  security-checks:
+    name: Security Policy Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.13.0
+
+      - name: Check security policies
+        run: |
+          MANIFESTS=$(helm template test ./helm/railsapp-stack)
+
+          echo "Checking runAsNonRoot..."
+          echo "$MANIFESTS" | grep -q "runAsNonRoot: true" || (echo "FAIL: runAsNonRoot not found" && exit 1)
+
+          echo "Checking readOnlyRootFilesystem..."
+          echo "$MANIFESTS" | grep -q "readOnlyRootFilesystem: true" || (echo "FAIL: readOnlyRootFilesystem not found" && exit 1)
+
+          echo "Checking allowPrivilegeEscalation..."
+          echo "$MANIFESTS" | grep -q "allowPrivilegeEscalation: false" || (echo "FAIL: allowPrivilegeEscalation not found" && exit 1)
+
+          echo "Checking capabilities drop ALL..."
+          echo "$MANIFESTS" | grep -A1 "drop:" | grep -q "ALL" || (echo "FAIL: capabilities drop ALL not found" && exit 1)
+
+          echo "Checking seccompProfile..."
+          echo "$MANIFESTS" | grep -q "seccompProfile" || (echo "FAIL: seccompProfile not found" && exit 1)
+
+          echo "Checking automountServiceAccountToken..."
+          echo "$MANIFESTS" | grep -q "automountServiceAccountToken: false" || (echo "FAIL: automountServiceAccountToken not found" && exit 1)
+
+          echo "Checking Pod Security Standards..."
+          echo "$MANIFESTS" | grep -q "pod-security.kubernetes.io/enforce" || (echo "FAIL: PSS labels not found" && exit 1)
+
+          echo "Checking NetworkPolicy..."
+          echo "$MANIFESTS" | grep -q "kind: NetworkPolicy" || (echo "FAIL: NetworkPolicy not found" && exit 1)
+
+          echo "Checking PodDisruptionBudget..."
+          echo "$MANIFESTS" | grep -q "kind: PodDisruptionBudget" || (echo "FAIL: PDB not found" && exit 1)
+
+          echo "All security checks passed!"
+
+  trivy-scan:
+    name: Trivy Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.13.0
+
+      - name: Generate manifests
+        run: helm template test ./helm/railsapp-stack > /tmp/manifests.yaml
+
+      - name: Run Trivy scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          scan-ref: '/tmp/manifests.yaml'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+        continue-on-error: true  # Don't fail on findings, just report

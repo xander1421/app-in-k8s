@@ -1,0 +1,79 @@
+======================================================================
+  {{ .Chart.Name }} has been deployed!
+======================================================================
+
+Namespace: {{ .Values.namespace }}
+
+PREREQUISITE: Ensure all operators are installed before deploying this chart.
+Run: ./scripts/install-operators.sh
+
+----------------------------------------------------------------------
+COMPONENTS STATUS
+----------------------------------------------------------------------
+
+Check the status of all components:
+
+1. PostgreSQL (CloudNativePG):
+   kubectl get clusters.postgresql.cnpg.io {{ .Release.Name }}-postgresql -n {{ .Values.namespace }}
+
+2. Redis (Spotahome Operator):
+   kubectl get redisfailovers {{ .Release.Name }}-redis -n {{ .Values.namespace }}
+
+3. Elasticsearch (ECK):
+   kubectl get elasticsearch {{ .Release.Name }}-elasticsearch -n {{ .Values.namespace }}
+
+4. RabbitMQ (Cluster Operator):
+   kubectl get rabbitmqclusters {{ .Release.Name }}-rabbitmq -n {{ .Values.namespace }}
+
+5. Rails Application:
+   kubectl get deployment {{ include "goapp-stack.goapp.serviceName" . }} -n {{ .Values.namespace }}
+
+{{- if .Values.gateway.enabled }}
+
+6. Envoy Gateway:
+   kubectl get gateway {{ .Release.Name }}-gateway -n {{ .Values.namespace }}
+   kubectl get httproute {{ .Release.Name }}-route -n {{ .Values.namespace }}
+{{- end }}
+
+----------------------------------------------------------------------
+CONNECTION STRINGS
+----------------------------------------------------------------------
+
+PostgreSQL: {{ include "goapp-stack.postgresql.host" . }}:5432
+Redis:      {{ include "goapp-stack.redis.sentinelHost" . }}:26379
+Elasticsearch: {{ include "goapp-stack.elasticsearch.host" . }}:9200
+RabbitMQ:   {{ include "goapp-stack.rabbitmq.host" . }}:5672
+
+----------------------------------------------------------------------
+ACCESS THE APPLICATION
+----------------------------------------------------------------------
+
+{{- if .Values.gateway.enabled }}
+
+Via Envoy Gateway:
+  # Get the Gateway IP
+  export GATEWAY_IP=$(kubectl get gateway {{ .Release.Name }}-gateway -n {{ .Values.namespace }} -o jsonpath='{.status.addresses[0].value}')
+
+  # Access the application
+  curl -H "Host: {{ .Values.gateway.hostname }}" http://$GATEWAY_IP/
+{{- end }}
+
+Via Port Forward:
+  kubectl port-forward svc/{{ include "goapp-stack.goapp.serviceName" . }} 3001:{{ .Values.goapp.port }} -n {{ .Values.namespace }}
+  curl http://localhost:3001/
+
+----------------------------------------------------------------------
+CREDENTIALS
+----------------------------------------------------------------------
+
+PostgreSQL password (managed by CloudNativePG):
+  kubectl get secret {{ .Release.Name }}-postgresql-app -n {{ .Values.namespace }} -o jsonpath='{.data.password}' | base64 -d
+
+Elasticsearch password (if auth enabled):
+  kubectl get secret {{ .Release.Name }}-elasticsearch-es-elastic-user -n {{ .Values.namespace }} -o jsonpath='{.data.elastic}' | base64 -d
+
+RabbitMQ default user credentials:
+  kubectl get secret {{ .Release.Name }}-rabbitmq-default-user -n {{ .Values.namespace }} -o jsonpath='{.data.username}' | base64 -d
+  kubectl get secret {{ .Release.Name }}-rabbitmq-default-user -n {{ .Values.namespace }} -o jsonpath='{.data.password}' | base64 -d
+
+======================================================================

@@ -1,0 +1,179 @@
+# helm unittest - Gateway API Tests
+suite: gateway api tests
+
+# ==========================================================================
+# GATEWAY TESTS
+# ==========================================================================
+tests:
+  - it: should create Gateway when enabled
+    template: templates/gateway.yaml
+    asserts:
+      - isKind:
+          of: Gateway
+      - isAPIVersion:
+          of: gateway.networking.k8s.io/v1
+      - equal:
+          path: metadata.name
+          value: goapp-gateway
+
+  - it: should not create Gateway when disabled
+    template: templates/gateway.yaml
+    set:
+      gateway:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should use correct GatewayClass
+    template: templates/gateway.yaml
+    asserts:
+      - equal:
+          path: spec.gatewayClassName
+          value: eg
+
+  - it: should have HTTP listener on port 80
+    template: templates/gateway.yaml
+    asserts:
+      - equal:
+          path: spec.listeners[0].name
+          value: http
+      - equal:
+          path: spec.listeners[0].port
+          value: 80
+      - equal:
+          path: spec.listeners[0].protocol
+          value: HTTP
+
+  - it: should have correct hostname
+    template: templates/gateway.yaml
+    asserts:
+      - equal:
+          path: spec.listeners[0].hostname
+          value: "goapp.local"
+
+  - it: should allow routes from same namespace
+    template: templates/gateway.yaml
+    asserts:
+      - equal:
+          path: spec.listeners[0].allowedRoutes.namespaces.from
+          value: Same
+
+  # ==========================================================================
+  # GATEWAY TLS TESTS
+  # ==========================================================================
+  - it: should have HTTPS listener when TLS enabled
+    template: templates/gateway.yaml
+    set:
+      gateway:
+        enabled: true
+        tls:
+          enabled: true
+          secretName: my-tls-secret
+    asserts:
+      - equal:
+          path: spec.listeners[1].name
+          value: https
+      - equal:
+          path: spec.listeners[1].port
+          value: 443
+      - equal:
+          path: spec.listeners[1].protocol
+          value: HTTPS
+
+  - it: should reference TLS secret when TLS enabled
+    template: templates/gateway.yaml
+    set:
+      gateway:
+        enabled: true
+        tls:
+          enabled: true
+          secretName: my-tls-secret
+    asserts:
+      - equal:
+          path: spec.listeners[1].tls.certificateRefs[0].name
+          value: my-tls-secret
+
+  # ==========================================================================
+  # HTTPROUTE TESTS
+  # ==========================================================================
+  - it: should create HTTPRoute when gateway enabled
+    template: templates/httproute.yaml
+    asserts:
+      - isKind:
+          of: HTTPRoute
+      - isAPIVersion:
+          of: gateway.networking.k8s.io/v1
+      - equal:
+          path: metadata.name
+          value: goapp-route
+
+  - it: should not create HTTPRoute when gateway disabled
+    template: templates/httproute.yaml
+    set:
+      gateway:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should reference correct gateway
+    template: templates/httproute.yaml
+    asserts:
+      - equal:
+          path: spec.parentRefs[0].name
+          value: goapp-gateway
+
+  - it: should have correct hostname
+    template: templates/httproute.yaml
+    asserts:
+      - contains:
+          path: spec.hostnames
+          content: "goapp.local"
+
+  - it: should route to goapp service
+    template: templates/httproute.yaml
+    asserts:
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: goapp-goapp
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 3000
+
+  - it: should have path prefix match for root
+    template: templates/httproute.yaml
+    asserts:
+      - equal:
+          path: spec.rules[0].matches[0].path.type
+          value: PathPrefix
+      - equal:
+          path: spec.rules[0].matches[0].path.value
+          value: /
+
+  # ==========================================================================
+  # HTTP REDIRECT TESTS
+  # ==========================================================================
+  - it: should create redirect route when TLS and redirect enabled
+    template: templates/httproute.yaml
+    set:
+      gateway:
+        enabled: true
+        tls:
+          enabled: true
+          redirectHttp: true
+    asserts:
+      - hasDocuments:
+          count: 2
+
+  - it: should not create redirect route when redirect disabled
+    template: templates/httproute.yaml
+    set:
+      gateway:
+        enabled: true
+        tls:
+          enabled: true
+          redirectHttp: false
+    asserts:
+      - hasDocuments:
+          count: 1

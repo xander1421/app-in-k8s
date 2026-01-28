@@ -1,0 +1,199 @@
+# helm unittest - Operator Custom Resource Tests
+suite: operator cr tests
+
+# ==========================================================================
+# POSTGRESQL (CloudNativePG) TESTS
+# ==========================================================================
+tests:
+  - it: should create PostgreSQL Cluster when enabled
+    template: templates/postgresql-cluster.yaml
+    asserts:
+      - isKind:
+          of: Cluster
+      - isAPIVersion:
+          of: postgresql.cnpg.io/v1
+      - equal:
+          path: metadata.name
+          value: goapp-postgresql
+
+  - it: should not create PostgreSQL when disabled
+    template: templates/postgresql-cluster.yaml
+    set:
+      postgresql:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should have 3 PostgreSQL instances by default
+    template: templates/postgresql-cluster.yaml
+    asserts:
+      - equal:
+          path: spec.instances
+          value: 3
+
+  - it: should configure PostgreSQL storage
+    template: templates/postgresql-cluster.yaml
+    asserts:
+      - equal:
+          path: spec.storage.size
+          value: 5Gi
+      - equal:
+          path: spec.storage.storageClass
+          value: local-path
+
+  - it: should bootstrap with correct database
+    template: templates/postgresql-cluster.yaml
+    asserts:
+      - equal:
+          path: spec.bootstrap.initdb.database
+          value: db3
+      - equal:
+          path: spec.bootstrap.initdb.owner
+          value: app
+
+  # ==========================================================================
+  # REDIS (Spotahome) TESTS
+  # ==========================================================================
+  - it: should create RedisFailover when enabled
+    template: templates/redis-failover.yaml
+    asserts:
+      - isKind:
+          of: RedisFailover
+      - isAPIVersion:
+          of: databases.spotahome.com/v1
+      - equal:
+          path: metadata.name
+          value: goapp-redis
+
+  - it: should not create Redis when disabled
+    template: templates/redis-failover.yaml
+    set:
+      redis:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should have 3 Redis replicas by default
+    template: templates/redis-failover.yaml
+    asserts:
+      - equal:
+          path: spec.redis.replicas
+          value: 3
+
+  - it: should have 3 Sentinel replicas by default
+    template: templates/redis-failover.yaml
+    asserts:
+      - equal:
+          path: spec.sentinel.replicas
+          value: 3
+
+  - it: should configure Redis storage
+    template: templates/redis-failover.yaml
+    asserts:
+      - equal:
+          path: spec.redis.storage.persistentVolumeClaim.spec.resources.requests.storage
+          value: 1Gi
+
+  # ==========================================================================
+  # ELASTICSEARCH (ECK) TESTS
+  # ==========================================================================
+  - it: should create Elasticsearch when enabled
+    template: templates/elasticsearch-cluster.yaml
+    asserts:
+      - isKind:
+          of: Elasticsearch
+      - isAPIVersion:
+          of: elasticsearch.k8s.elastic.co/v1
+      - equal:
+          path: metadata.name
+          value: goapp-elasticsearch
+
+  - it: should not create Elasticsearch when disabled
+    template: templates/elasticsearch-cluster.yaml
+    set:
+      elasticsearch:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should have correct Elasticsearch version
+    template: templates/elasticsearch-cluster.yaml
+    asserts:
+      - equal:
+          path: spec.version
+          value: "7.17.0"
+
+  - it: should have 3 Elasticsearch nodes by default
+    template: templates/elasticsearch-cluster.yaml
+    asserts:
+      - equal:
+          path: spec.nodeSets[0].count
+          value: 3
+
+  - it: should configure Elasticsearch storage
+    template: templates/elasticsearch-cluster.yaml
+    asserts:
+      - equal:
+          path: spec.nodeSets[0].volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 10Gi
+
+  - it: should disable TLS for internal use
+    template: templates/elasticsearch-cluster.yaml
+    asserts:
+      - equal:
+          path: spec.http.tls.selfSignedCertificate.disabled
+          value: true
+
+  # ==========================================================================
+  # RABBITMQ (Cluster Operator) TESTS
+  # ==========================================================================
+  - it: should create RabbitmqCluster when enabled
+    template: templates/rabbitmq-cluster.yaml
+    asserts:
+      - isKind:
+          of: RabbitmqCluster
+      - isAPIVersion:
+          of: rabbitmq.com/v1beta1
+      - equal:
+          path: metadata.name
+          value: goapp-rabbitmq
+
+  - it: should not create RabbitMQ when disabled
+    template: templates/rabbitmq-cluster.yaml
+    set:
+      rabbitmq:
+        enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should have 3 RabbitMQ replicas by default
+    template: templates/rabbitmq-cluster.yaml
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: should configure RabbitMQ storage
+    template: templates/rabbitmq-cluster.yaml
+    asserts:
+      - equal:
+          path: spec.persistence.storage
+          value: 1Gi
+
+  - it: should enable management plugin
+    template: templates/rabbitmq-cluster.yaml
+    asserts:
+      - contains:
+          path: spec.rabbitmq.additionalPlugins
+          content: rabbitmq_management
+
+  - it: should enable k8s peer discovery plugin
+    template: templates/rabbitmq-cluster.yaml
+    asserts:
+      - contains:
+          path: spec.rabbitmq.additionalPlugins
+          content: rabbitmq_peer_discovery_k8s

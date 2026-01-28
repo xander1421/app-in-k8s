@@ -1,0 +1,56 @@
+{{- if .Values.minio.enabled }}
+---
+apiVersion: minio.min.io/v2
+kind: Tenant
+metadata:
+  name: twitter-minio
+  namespace: {{ .Values.namespace }}
+spec:
+  image: minio/minio:RELEASE.2024-01-01T16-36-33Z
+  pools:
+    - name: pool-0
+      servers: {{ .Values.minio.servers }}
+      volumesPerServer: {{ .Values.minio.volumesPerServer }}
+      volumeClaimTemplate:
+        metadata:
+          name: data
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: {{ .Values.minio.storage }}
+          {{- if .Values.minio.storageClass }}
+          storageClassName: {{ .Values.minio.storageClass }}
+          {{- end }}
+      resources:
+{{ toYaml .Values.minio.resources | indent 8 }}
+  credsSecret:
+    name: twitter-minio-credentials
+  configuration:
+    name: twitter-minio-config
+  requestAutoCert: false
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: twitter-minio-credentials
+  namespace: {{ .Values.namespace }}
+type: Opaque
+stringData:
+  accesskey: minio
+  secretkey: minio-secret-key
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: twitter-minio-config
+  namespace: {{ .Values.namespace }}
+type: Opaque
+stringData:
+  config.env: |
+    export MINIO_ROOT_USER="minio"
+    export MINIO_ROOT_PASSWORD="minio-secret-key"
+{{- end }}

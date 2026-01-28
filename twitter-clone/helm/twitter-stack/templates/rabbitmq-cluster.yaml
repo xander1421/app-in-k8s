@@ -1,0 +1,22 @@
+{{- if .Values.rabbitmq.enabled }}
+---
+apiVersion: rabbitmq.com/v1beta1
+kind: RabbitmqCluster
+metadata:
+  name: twitter-rabbitmq
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.rabbitmq.replicas }}
+  resources:
+{{ toYaml .Values.rabbitmq.resources | indent 4 }}
+  persistence:
+    storage: {{ .Values.rabbitmq.storage }}
+    {{- if .Values.rabbitmq.storageClass }}
+    storageClassName: {{ .Values.rabbitmq.storageClass }}
+    {{- end }}
+  rabbitmq:
+    additionalConfig: |
+      vm_memory_high_watermark.relative = 0.8
+      disk_free_limit.relative = 1.0
+      cluster_partition_handling = pause_minority
+{{- end }}
